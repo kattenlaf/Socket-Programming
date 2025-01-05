@@ -6,9 +6,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#define PORT 8080
-#define MAX_BUFFER_SIZE 2048
-#define MAXIMUM_BACKLOG_CONNECTIONS 3 // https://man7.org/linux/man-pages/man2/listen.2.html
+#include "server.h" // https://man7.org/linux/man-pages/man2/listen.2.html
 
 int main(void) {
     int server_fd, conn_socket; // File descriptor and new socket
@@ -18,10 +16,6 @@ int main(void) {
     socklen_t addrlen = sizeof(address);
     char buffer[MAX_BUFFER_SIZE] = {0};
     char* data_from_server = "Server Message";
-
-    // listen for a request
-    // accept the connection
-    // serve a response
 
     /* Set up socket and bind to port */
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -75,11 +69,5 @@ int main(void) {
     // close server socket
     close(server_fd);
 
-    /*
-    while (true) {
-
-    }
-    */
-
-    return 0;
+    exit(EXIT_SUCCESS);
 }
