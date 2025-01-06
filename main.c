@@ -1,11 +1,3 @@
-#include <stdio.h>
-#include <stdbool.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
-
 #include "server.h" // https://man7.org/linux/man-pages/man2/listen.2.html
 
 int main(void) {
@@ -37,31 +29,39 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    if (listen(server_fd, MAXIMUM_BACKLOG_CONNECTIONS) < 0) {
+    short num_requests_sent = 0;
+
+    // When a request comes in, spawn thread to handle the request, respond, 
+    // update requests received
+    // TODO implement multi threadedness to serve multiple requests at once
+    while (true && num_requests_sent < 3) {
+        if (listen(server_fd, MAXIMUM_BACKLOG_CONNECTIONS) < 0) {
             perror("listening failure");
             exit(EXIT_FAILURE);
         }
 
-    printf("Webserver is listening...\n");
-    if ((conn_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
-        perror("Accept Failed");
-        exit(EXIT_FAILURE);
-    }
+        printf("Webserver is listening...\n");
+        if ((conn_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
+            perror("Accept Failed");
+            exit(EXIT_FAILURE);
+        }
 
-    // -1 for trailing null character to terminate string \0
-    // https://man7.org/linux/man-pages/man2/read.2.html
-    if ((conn_socket_data_read = read(conn_socket, buffer, MAX_BUFFER_SIZE - 1)) < 0) {
-        perror("Failure reading data from client socket");
-        exit(EXIT_FAILURE);
+        // -1 for trailing null character to terminate string \0
+        // https://man7.org/linux/man-pages/man2/read.2.html
+        if ((conn_socket_data_read = read(conn_socket, buffer, MAX_BUFFER_SIZE - 1)) < 0) {
+            perror("Failure reading data from client socket");
+            exit(EXIT_FAILURE);
+        }
+        printf("Client sent %s\n", buffer);
+        int socket_send = send(conn_socket, data_from_server, strlen(data_from_server), 0);
+        if (socket_send < 0) {
+            // Error sending data to client socket
+            perror("Error sending data to client, socket send error");
+            exit(EXIT_FAILURE);
+        }
+        printf("Sent message to client\n");
+        num_requests_sent++;
     }
-    printf("Client sent %s\n", buffer);
-    int socket_send = send(conn_socket, data_from_server, strlen(data_from_server), 0);
-    if (socket_send < 0) {
-        // Error sending data to client socket
-        perror("Error sending data to client, socket send error");
-        exit(EXIT_FAILURE);
-    }
-    printf("Sent message to client\n");
 
     // close client socket
     close(conn_socket);
