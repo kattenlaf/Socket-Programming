@@ -1,4 +1,3 @@
-#include "server.h"
 #include "client.h"
 
 int main(void) {
@@ -27,23 +26,23 @@ int main(void) {
     }
 
     Connect_Send cs;
-    cs.client_fd = client_fd;
-    cs.message = "message from client thread\n";
     cs.serveraddress = server_address;
     pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * 3);
     for (int i = 0; i < 3; i++) {
+        cs.socketfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (cs.socketfd < 0) {
+            perror("Client Socket Creation Error");
+            continue;
+        }
+        printf("Client file descriptor %d\n", cs.socketfd);
         pthread_create(&threads[i], NULL, &connect_send_message, &cs);
     }
 
-    // Read response from server
-    int msg_read_status = read(client_fd, buffer, MAX_BUFFER_SIZE - 1);
-    if (msg_read_status < 0) {
-        perror("Failure reading message responded from server");
-        exit(EXIT_FAILURE);
+    for (int i = 0; i < 3; i++) {
+        (void) pthread_join(threads[i], NULL);
     }
 
-    printf("Message Received From Server Below:\n%s\n", buffer);
-
-    close(client_fd);
+    free(threads);
+    printf("Closing client, freeing threads complete\n");
     exit(EXIT_SUCCESS);
 }

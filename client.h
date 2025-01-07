@@ -1,33 +1,45 @@
-#include "server.h"
+#include "shared.h"
+
 #ifndef __CLIENT_H
 #define __CLIENT_H
-
-typedef struct Connect_Send {
-    int client_fd;
-    char* message;
-    struct sockaddr_in serveraddress;
-} Connect_Send;
 
 // definitions
 // Must use void* for thread execution arguments
 // multi threaded send requests
 void* connect_send_message(void* args) {
     printf("Thread id is -> %d\n", pthread_self());
+    char message_to_send[MAX_BUFFER_SIZE] = {0};
+    char buffer[MAX_BUFFER_SIZE] = {0};
+    sprintf(message_to_send, "msg from thread id %d\n", pthread_self());
+
     Connect_Send* cs = (Connect_Send*)args;
-    int status = connect(cs->client_fd, (struct sockaddr*)&cs->serveraddress, sizeof(cs->serveraddress));
+    cs->message = message_to_send;
+    int status = connect(cs->socketfd, (struct sockaddr*)&cs->serveraddress, sizeof(cs->serveraddress));
     if (status < 0) {
         perror("Error connecting to server");
-        exit(EXIT_FAILURE);
+        pthread_exit(NULL);
     }
-
-    int sent = send(cs->client_fd, cs->message, strlen(cs->message), 0);
+    // Send message to server
+    int sent = send(cs->socketfd, cs->message, strlen(cs->message), 0);
     if (sent < 0) {
         perror("Error sending message to server");
-        exit(EXIT_FAILURE);
+        pthread_exit(NULL);
     } else {
-        printf("Number of bytes sent: %i\n", sent);
+        printf("Number of bytes sent: %d\n", sent);
     }
-    exit(EXIT_SUCCESS);
+
+    // Read response from server
+    int msg_read_status = read(cs->socketfd, buffer, MAX_BUFFER_SIZE - 1);
+    printf("Bytes received %d\n", msg_read_status);
+    if (msg_read_status < 0) {
+        perror("Failure reading message responded from server");
+        pthread_exit(NULL);
+    }
+
+    printf("Message Received From Server Below:\n%s\n", buffer);
+    close(cs->socketfd);
+
+    pthread_exit(NULL);
 }
 
 #endif
