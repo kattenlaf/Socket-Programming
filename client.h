@@ -7,10 +7,10 @@
 // Must use void* for thread execution arguments
 // multi threaded send requests
 void* connect_send_message(void* args) {
-    printf("Thread id is -> %d\n", pthread_self());
+    fprintf(stdout, "Thread id is -> %d\n", pthread_self());
+    fflush(stdout);
     char message_to_send[MAX_BUFFER_SIZE] = {0};
     char buffer[MAX_BUFFER_SIZE] = {0};
-    sprintf(message_to_send, "msg from thread id %d\n", pthread_self());
 
     Connect_Send* cs = (Connect_Send*)args;
     cs->message = message_to_send;
@@ -25,21 +25,19 @@ void* connect_send_message(void* args) {
         perror("Error sending message to server");
         pthread_exit(NULL);
     } else {
-        printf("Number of bytes sent: %d\n", sent);
+        fprintf(stdout, "Number of bytes sent: %d\n", sent);
+        fflush(stdout);
     }
-
     // Read response from server
     int msg_read_status = read(cs->socketfd, buffer, MAX_BUFFER_SIZE - 1);
-    printf("Bytes received %d\n", msg_read_status);
+    fprintf(stdout, "Bytes received %d\n", msg_read_status);
     if (msg_read_status < 0) {
         perror("Failure reading message responded from server");
         pthread_exit(NULL);
     }
-
-    printf("Message Received From Server Below:\n%s\n", buffer);
+    fprintf(stdout, "Message Received From Server Below:\n%s\n", buffer);
+    fflush(stdout);
     close(cs->socketfd);
-
     pthread_exit(NULL);
 }
-
 #endif

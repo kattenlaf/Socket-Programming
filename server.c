@@ -1,8 +1,7 @@
 #include "server.h" // https://man7.org/linux/man-pages/man2/listen.2.html
 
 int main(void) {
-    int server_fd, conn_socket; // File descriptor and new socket
-    ssize_t conn_socket_data_read;
+    int server_fd, connected_fd; // File descriptor and new socket created on acceptance
     struct sockaddr_in address;
     int opt;
     socklen_t addrlen = sizeof(address);
@@ -38,13 +37,13 @@ int main(void) {
         fprintf(stdout, "Webserver is listening...\n");
         fflush(stdout);
         // https://man7.org/linux/man-pages/man2/accept.2.html
-        if ((conn_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
+        if ((connected_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
             perror("Accept Failed");
             exit(EXIT_FAILURE);
         }
 
         Connect_Send cs;
-        cs.socketfd = conn_socket;
+        cs.socketfd = connected_fd;
         fprintf(stdout, "Connected socket for client: %d\n", cs.socketfd);
         fflush(stdout);
         pthread_t handle_connection_th;
@@ -52,7 +51,7 @@ int main(void) {
     }
 
     // close newly created connected socket
-    close(conn_socket);
+    close(connected_fd);
     // close server listening socket
     close(server_fd);
 

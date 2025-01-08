@@ -6,12 +6,6 @@ int main(void) {
     char* message_to_server = "Hello server";
     char buffer[MAX_BUFFER_SIZE] = {0};
 
-    int client_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (client_fd < 0) {
-        perror("Client Socket Creation Error");
-        exit(EXIT_FAILURE);
-    }
-
     // inet_pton - convert IPv4 and IPv6 addresses from text to binary form
     // https://man7.org/linux/man-pages/man3/inet_pton.3.html
     server_address.sin_family = AF_INET;

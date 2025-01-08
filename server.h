@@ -18,19 +18,19 @@ void* connect_send_message_server(void* args) {
     char buffer[MAX_BUFFER_SIZE] = {0};
     if ((data_read = read(cs->socketfd, buffer, MAX_BUFFER_SIZE - 1)) < 0) {
         perror("Failure reading data from client socket");
-            exit(EXIT_FAILURE);
+        pthread_exit(NULL);
     }
-    printf("bytes read on server side:%d\n", data_read);
-    printf("Client sent \n%s\n", buffer);
+    fprintf(stdout, "bytes read on server side:%d\nClient sent \n%s\n", data_read, buffer);
+    fflush(stdout);
     
     int bytes_sent = send(cs->socketfd, data_from_server, strlen(data_from_server), 0);
     if (bytes_sent < 0) {
         // Error sending data to client socket
         perror("Error sending data to client, socket send error");
-        exit(EXIT_FAILURE);
+        pthread_exit(NULL);
     }
-    printf("Bytes sent: %d\n", bytes_sent);
-    printf("Sent message to client\n");
+    fprintf(stdout, "Bytes sent: %d\nSent message to client\n", bytes_sent);
+    fflush(stdout);
     close(cs->socketfd);
 }
 
