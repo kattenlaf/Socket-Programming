@@ -35,6 +35,8 @@ int main(void) {
             exit(EXIT_FAILURE);
         }
 
+        fprintf(stdout, "Webserver is listening stdout\n");
+        fflush(stdout);
         printf("Webserver is listening...\n");
         // https://man7.org/linux/man-pages/man2/accept.2.html
         if ((conn_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
@@ -49,9 +51,8 @@ int main(void) {
         pthread_create(&handle_connection_th, NULL, &connect_send_message_server, &cs);
     }
 
-    // close connected socket
+    // close newly created connected socket
     close(conn_socket);
-
     // close server listening socket
     close(server_fd);
 
