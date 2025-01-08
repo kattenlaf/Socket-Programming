@@ -34,7 +34,8 @@ int main(void) {
             perror("Client Socket Creation Error");
             continue;
         }
-        printf("Client file descriptor %d\n", cs.socketfd);
+        fprintf(stdout, "Client file descriptor %d\n", cs.socketfd);
+        fflush(stdout);
         pthread_create(&threads[i], NULL, &connect_send_message, &cs);
     }
 
@@ -43,6 +44,7 @@ int main(void) {
     }
 
     free(threads);
-    printf("Closing client, freeing threads complete\n");
+    fprintf(stdout, "Closing client, freeing threads complete\n");
+    fflush(stdout);
     exit(EXIT_SUCCESS);
 }

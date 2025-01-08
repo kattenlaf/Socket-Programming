@@ -35,9 +35,8 @@ int main(void) {
             exit(EXIT_FAILURE);
         }
 
-        fprintf(stdout, "Webserver is listening stdout\n");
+        fprintf(stdout, "Webserver is listening...\n");
         fflush(stdout);
-        printf("Webserver is listening...\n");
         // https://man7.org/linux/man-pages/man2/accept.2.html
         if ((conn_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
             perror("Accept Failed");
@@ -46,7 +45,8 @@ int main(void) {
 
         Connect_Send cs;
         cs.socketfd = conn_socket;
-        printf("Connected socket for client: %d\n", cs.socketfd);
+        fprintf(stdout, "Connected socket for client: %d\n", cs.socketfd);
+        fflush(stdout);
         pthread_t handle_connection_th;
         pthread_create(&handle_connection_th, NULL, &connect_send_message_server, &cs);
     }
