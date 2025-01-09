@@ -22,7 +22,7 @@ int main(void) {
     Connect_Send cs;
     cs.serveraddress = server_address;
     pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * 3);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 100; i++) {
         cs.socketfd = socket(AF_INET, SOCK_STREAM, 0);
         if (cs.socketfd < 0) {
             perror("Client Socket Creation Error");
@@ -33,7 +33,7 @@ int main(void) {
         pthread_create(&threads[i], NULL, &connect_send_message, &cs);
     }
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 100; i++) {
         fprintf(stdout, "Joining threads\n");
         fflush(stdout);
         (void) pthread_join(threads[i], NULL);

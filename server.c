@@ -6,7 +6,6 @@ int main(void) {
     int opt;
     socklen_t addrlen = sizeof(address);
     char buffer[MAX_BUFFER_SIZE] = {0};
-    char* data_from_server = "Server Message";
 
     /* Set up socket and bind to port */
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -43,12 +42,17 @@ int main(void) {
         fprintf(stdout, "Webserver is waiting to accept request...\n");
         fflush(stdout);
 
-        Connect_Send cs;
-        cs.socketfd = connected_fd;
-        fprintf(stdout, "Connected socket for client: %d\n", cs.socketfd);
+        Connect_Send* cs = (Connect_Send*)malloc(sizeof(Connect_Send));
+        cs->socketfd = connected_fd;
+
+        /* When done this way the same memory address is used for the variable
+        and then a concurrent issue occurs. If I want to use stack variable will
+        need to leverage some type of semaphore lock*/
+        cs->socketfd = connected_fd;
+        fprintf(stdout, "Connected socket for client: %d\n", cs->socketfd);
         fflush(stdout);
         pthread_t handle_connection_th;
-        pthread_create(&handle_connection_th, NULL, &connect_send_message_server, &cs);
+        pthread_create(&handle_connection_th, NULL, &connect_send_message_server, cs);
     }
 
     // close server listening socket
