@@ -34,6 +34,8 @@ int main(void) {
     }
 
     for (int i = 0; i < 3; i++) {
+        fprintf(stdout, "Joining threads\n");
+        fflush(stdout);
         (void) pthread_join(threads[i], NULL);
     }
 

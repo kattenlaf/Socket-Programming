@@ -28,19 +28,20 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    while (true) {
-        if (listen(server_fd, MAXIMUM_BACKLOG_CONNECTIONS) < 0) {
-            perror("listening failure");
-            exit(EXIT_FAILURE);
-        }
+    // Server socket only needs to listen once
+    if (listen(server_fd, MAXIMUM_BACKLOG_CONNECTIONS) < 0) {
+        perror("listening failure");
+        exit(EXIT_FAILURE);
+    }
 
-        fprintf(stdout, "Webserver is listening...\n");
-        fflush(stdout);
+    while (true) {
         // https://man7.org/linux/man-pages/man2/accept.2.html
         if ((connected_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
             perror("Accept Failed");
             exit(EXIT_FAILURE);
         }
+        fprintf(stdout, "Webserver is waiting to accept request...\n");
+        fflush(stdout);
 
         Connect_Send cs;
         cs.socketfd = connected_fd;
@@ -50,8 +51,6 @@ int main(void) {
         pthread_create(&handle_connection_th, NULL, &connect_send_message_server, &cs);
     }
 
-    // close newly created connected socket
-    close(connected_fd);
     // close server listening socket
     close(server_fd);
 

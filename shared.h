@@ -16,3 +16,8 @@ typedef struct Connect_Send {
     char* message;
     struct sockaddr_in serveraddress;
 } Connect_Send;
+
+void close_fd_return(int socketfd) {
+    close(socketfd);
+    pthread_exit(NULL);
+}
