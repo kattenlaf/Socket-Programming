@@ -1,13 +1,4 @@
-#include <stdio.h>
-#include <stdbool.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <arpa/inet.h>
-
-#include "server.h"
+#include "client.h"
 
 int main(void) {
     // Create a socket, send a request to the port server is listening on and accept a response?
@@ -15,18 +6,10 @@ int main(void) {
     char* message_to_server = "Hello server";
     char buffer[MAX_BUFFER_SIZE] = {0};
 
-    int client_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (client_fd < 0) {
-        perror("Client Socket Creation Error");
-        exit(EXIT_FAILURE);
-    }
-
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(PORT);
-
     // inet_pton - convert IPv4 and IPv6 addresses from text to binary form
     // https://man7.org/linux/man-pages/man3/inet_pton.3.html
-
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(PORT);
     int conversion_status = inet_pton(AF_INET, LOCAL_HOST, &server_address.sin_addr);
     if (conversion_status < 0) {
         perror("Address is not valid");
@@ -36,22 +19,28 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    int status = connect(client_fd, (struct sockaddr*)&server_address, sizeof(server_address));
-    if (status < 0) {
-        perror("Connection to server failure");
-        exit(EXIT_FAILURE);
+    Connect_Send cs;
+    cs.serveraddress = server_address;
+    pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * 3);
+    for (int i = 0; i < 100; i++) {
+        cs.socketfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (cs.socketfd < 0) {
+            perror("Client Socket Creation Error");
+            continue;
+        }
+        fprintf(stdout, "Client file descriptor %d\n", cs.socketfd);
+        fflush(stdout);
+        pthread_create(&threads[i], NULL, &connect_send_message, &cs);
     }
 
-    send(client_fd, message_to_server, strlen(message_to_server), 0);
-    // Read response from server
-    int msg_read_status = read(client_fd, buffer, MAX_BUFFER_SIZE - 1);
-    if (msg_read_status < 0) {
-        perror("Failure reading message responded from server");
-        exit(EXIT_FAILURE);
+    for (int i = 0; i < 100; i++) {
+        fprintf(stdout, "Joining threads\n");
+        fflush(stdout);
+        (void) pthread_join(threads[i], NULL);
     }
 
-    printf("Message Received From Server Below:\n%s\n", buffer);
-
-    close(client_fd);
+    free(threads);
+    fprintf(stdout, "Closing client, freeing threads complete\n");
+    fflush(stdout);
     exit(EXIT_SUCCESS);
 }
