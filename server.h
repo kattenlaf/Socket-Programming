@@ -17,7 +17,7 @@ void* connect_send_message_server(void* args) {
     char buffer[MAX_BUFFER_SIZE] = {0};
     char data_from_server[MAX_BUFFER_SIZE] = {0};
     if ((data_read = read(cs->socketfd, buffer, MAX_BUFFER_SIZE - 1)) < 0) {
-        perror("Failure reading data from client socket");
+        perror("Failure reading data from client socket\n");
         fprintf(stdout, "Client failing file descripter %d\n\
         Memory address of connect send object: {%x}\n", cs->socketfd, cs);
         fflush(stdout);
@@ -30,7 +30,7 @@ void* connect_send_message_server(void* args) {
     _ssize_t bytes_sent = send(cs->socketfd, data_from_server, strlen(data_from_server), 0);
     if (bytes_sent < 0) {
         // Error sending data to client socket
-        perror("Error sending data to client, socket send error");
+        perror("Error sending data to client, socket send error\n");
         free(cs);
         close_fd_return(cs->socketfd);
     }

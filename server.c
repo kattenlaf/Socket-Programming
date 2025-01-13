@@ -28,7 +28,7 @@ int main(void) {
     }
 
     // Server socket only needs to listen once
-    if (listen(server_fd, MAXIMUM_BACKLOG_CONNECTIONS) < 0) {
+    if (listen(server_fd, MAX_THREADS) < 0) {
         perror("listening failure");
         exit(EXIT_FAILURE);
     }
