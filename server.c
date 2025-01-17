@@ -1,19 +1,24 @@
 #include "server.h" // https://man7.org/linux/man-pages/man2/listen.2.html
 
 int main(void) {
-    int server_fd, connected_fd; // File descriptor and new socket created on acceptance
+    int master_socket, new_connected_fd; // File descriptor and new socket created on acceptance
     struct sockaddr_in address;
-    int opt;
+    int opt, i;
     socklen_t addrlen = sizeof(address);
+    char* message = "Hello from server\n";
     char buffer[MAX_BUFFER_SIZE] = {0};
+    int clientfds[MAX_CLIENTS] = {0};
+    fd_set readfds;
+    size_t dataread;
+    char prompt_messages[MAX_BUFFER_SIZE] = {0};
 
     /* Set up socket and bind to port */
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((master_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("Socket failed");
         exit(EXIT_FAILURE);
     }
 
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+    if (setsockopt(master_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
         perror("setsockopt error");
         exit(EXIT_FAILURE);
     }
@@ -22,41 +27,110 @@ int main(void) {
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(PORT);
 
-    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+    // bind to local host 8080
+    if (bind(master_socket, (struct sockaddr*)&address, sizeof(address)) < 0) {
         perror("bind error");
         exit(EXIT_FAILURE);
     }
 
     // Server socket only needs to listen once
-    if (listen(server_fd, MAXIMUM_BACKLOG_CONNECTIONS) < 0) {
+    if (listen(master_socket, MAX_CLIENTS) < 0) {
         perror("listening failure");
         exit(EXIT_FAILURE);
     }
 
-    while (true) {
-        // https://man7.org/linux/man-pages/man2/accept.2.html
-        if ((connected_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
-            perror("Accept Failed");
-            exit(EXIT_FAILURE);
-        }
-        fprintf(stdout, "Webserver is waiting to accept request...\n");
-        fflush(stdout);
-
-        Connect_Send* cs = (Connect_Send*)malloc(sizeof(Connect_Send));
-        cs->socketfd = connected_fd;
-
-        /* When done this way the same memory address is used for the variable
-        and then a concurrent issue occurs. If I want to use stack variable will
-        need to leverage some type of semaphore lock*/
-        cs->socketfd = connected_fd;
-        fprintf(stdout, "Connected socket for client: %d\n", cs->socketfd);
-        fflush(stdout);
-        pthread_t handle_connection_th;
-        pthread_create(&handle_connection_th, NULL, &connect_send_message_server, cs);
+    // initialize the client file descriptors to 0
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        clientfds[i] = 0;
     }
 
-    // close server listening socket
-    close(server_fd);
+    int maxfd;
+    int sd = 0;
+    int fds_to_read;
+
+    while (true) {
+        FD_ZERO(&readfds);
+        FD_SET(master_socket, &readfds);
+
+        for (i = 0; i < MAX_CLIENTS; i++) {
+            sd = clientfds[i];
+            FD_SET(sd, &readfds);
+            if (sd > maxfd) {
+                maxfd = sd;
+            }
+        }
+
+        if (sd > maxfd) {
+            maxfd = sd;
+        }
+
+        // https://linux.die.net/man/2/select, timeout being NULL means select can block indefinitely
+        fds_to_read = select(maxfd + 1, &readfds, NULL, NULL, NULL);
+        if (fds_to_read == 0) {
+            fprintf(stdout, "no file descriptors to read\n");
+            fflush(stdout);
+        } else if (fds_to_read < 0) {
+            perror("Server select error\n");
+            continue;
+        }
+
+        print_stdout("Webserver is waiting to accept request...\n");
+        if (FD_ISSET(master_socket, &readfds)) {
+            // client_fd = accept(master_socket, (struct sockaddr*)NULL, NULL);
+            new_connected_fd = accept(master_socket, (struct sockaddr*)&address, &addrlen);
+            if (new_connected_fd < 0) {
+                perror("client accept error!\n");
+                continue;
+            }
+        }
+        fprintf(stdout, "connection established\n");
+        fflush(stdout);
+
+        if (send(new_connected_fd, message, strlen(message), 0) != strlen(message)) {
+            perror("Failure sending message to client\n");
+            continue;
+        }
+        print_stdout("Message successfully sent!\n");
+        // add new socket to list
+        for (i = 0; i < MAX_CLIENTS; i++) {
+            if (clientfds[i] == 0) {
+                clientfds[i] = new_connected_fd;
+                print_stdout("Adding to client file descriptors\n");
+                break;
+            }
+        }
+
+        for (i = 0; i < MAX_CLIENTS; i++) {
+            sd = clientfds[i];
+
+            if (FD_ISSET(sd, &readfds)) {
+                dataread = read(sd, buffer, MAX_BUFFER_SIZE);
+                // 0 bytes meant no data was read, that means client was added but,
+                // disconnected eventually as no data is available to be read, close the socket as well
+                if (dataread == 0) {
+                    print_stdout("client disconnect\n");
+                    getpeername(sd, (struct sockaddr*)&address, (socklen_t*)&address);
+                    sprintf(prompt_messages, "host disconnected, ip:\n{%s}, port: {%d}\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+                    print_stdout(prompt_messages);
+
+                    // close socket and set that socket to 0 in the list to use again
+                    close(sd);
+                    clientfds[i] = 0;
+                } else if (dataread < 0) {
+                    perror("error reading from client\n");
+                    continue;
+                } else {
+                    print_stdout("message from client\n");
+                    print_stdout(buffer);
+                    buffer[dataread] = '\0';
+                    send(sd, buffer, strlen(buffer), 0);
+                }
+            }
+        }
+    }
+
+    // close server master listening socket
+    close(master_socket);
 
     exit(EXIT_SUCCESS);
 }

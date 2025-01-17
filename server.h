@@ -1,43 +1,10 @@
 #include "shared.h"
+#include <sys/select.h>
+
 #ifndef __SERVER_H
 #define __SERVER_H
 #define MAXIMUM_BACKLOG_CONNECTIONS 3
 
 // declarations
-void* connect_send_message_server(void* args);
-
-// When a request comes in, spawn thread to handle the request, respond, 
-    // update requests received
-    // TODO implement multi threadedness to serve multiple requests at once
-
-// definitions
-void* connect_send_message_server(void* args) {
-    Connect_Send* cs = (Connect_Send*)args;
-    ssize_t data_read;
-    char buffer[MAX_BUFFER_SIZE] = {0};
-    char data_from_server[MAX_BUFFER_SIZE] = {0};
-    if ((data_read = read(cs->socketfd, buffer, MAX_BUFFER_SIZE - 1)) < 0) {
-        perror("Failure reading data from client socket");
-        fprintf(stdout, "Client failing file descripter %d\n\
-        Memory address of connect send object: {%x}\n", cs->socketfd, cs);
-        fflush(stdout);
-        free(cs);
-        close_fd_return(cs->socketfd);
-    }
-    fprintf(stdout, "bytes read on server side:%d\nClient sent \n%s\n", data_read, buffer);
-    fflush(stdout);
-    sprintf(data_from_server, "Hello from server with threadid: {%d}\n", pthread_self());
-    _ssize_t bytes_sent = send(cs->socketfd, data_from_server, strlen(data_from_server), 0);
-    if (bytes_sent < 0) {
-        // Error sending data to client socket
-        perror("Error sending data to client, socket send error");
-        free(cs);
-        close_fd_return(cs->socketfd);
-    }
-    fprintf(stdout, "Bytes sent: %d\nSent message to client\n", bytes_sent);
-    fflush(stdout);
-    free(cs);
-    close_fd_return(cs->socketfd);
-}
 
 #endif
