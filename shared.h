@@ -11,7 +11,7 @@
 #define PORT 8080
 #define MAX_BUFFER_SIZE 2048
 #define LOCAL_HOST "127.0.0.1"
-#define MAX_THREADS 20
+#define MAX_CLIENTS 4
 
 typedef struct Connect_Send {
     int socketfd;
@@ -22,4 +22,9 @@ typedef struct Connect_Send {
 void close_fd_return(int socketfd) {
     close(socketfd);
     pthread_exit(NULL);
+}
+
+void print_stdout(char* msg) {
+    fprintf(stdout, msg);
+    fflush(stdout);
 }
