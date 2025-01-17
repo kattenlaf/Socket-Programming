@@ -10,6 +10,7 @@ int main(void) {
     int clientfds[MAX_CLIENTS] = {0};
     fd_set readfds;
     size_t dataread;
+    char prompt_messages[MAX_BUFFER_SIZE] = {0};
 
     /* Set up socket and bind to port */
     if ((master_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -85,12 +86,15 @@ int main(void) {
                 continue;
             }
         }
+        fprintf(stdout, "connection established\n");
+        fflush(stdout);
 
         if (send(new_connected_fd, message, strlen(message), 0) != strlen(message)) {
             perror("Failure sending message to client\n");
             continue;
         }
         print_stdout("Message successfully sent!\n");
+        // add new socket to list
         for (i = 0; i < MAX_CLIENTS; i++) {
             if (clientfds[i] == 0) {
                 clientfds[i] = new_connected_fd;
@@ -108,13 +112,21 @@ int main(void) {
                 // disconnected eventually as no data is available to be read, close the socket as well
                 if (dataread == 0) {
                     print_stdout("client disconnect\n");
+                    getpeername(sd, (struct sockaddr*)&address, (socklen_t*)&address);
+                    sprintf(prompt_messages, "host disconnected, ip:\n{%s}, port: {%d}\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+                    print_stdout(prompt_messages);
+
+                    // close socket and set that socket to 0 in the list to use again
                     close(sd);
+                    clientfds[i] = 0;
                 } else if (dataread < 0) {
                     perror("error reading from client\n");
                     continue;
                 } else {
                     print_stdout("message from client\n");
                     print_stdout(buffer);
+                    buffer[dataread] = '\0';
+                    send(sd, buffer, strlen(buffer), 0);
                 }
             }
         }
