@@ -49,8 +49,6 @@ int main(void) {
     int fds_to_read;
 
     while (true) {
-        fprintf(stdout, "Webserver is waiting to accept request...\n");
-        fflush(stdout);
         FD_ZERO(&readfds);
         FD_SET(master_socket, &readfds);
 
@@ -71,13 +69,12 @@ int main(void) {
         if (fds_to_read == 0) {
             fprintf(stdout, "no file descriptors to read\n");
             fflush(stdout);
-            continue;
         } else if (fds_to_read < 0) {
             perror("Server select error\n");
             continue;
         }
 
-        
+        print_stdout("Webserver is waiting to accept request...\n");
         if (FD_ISSET(master_socket, &readfds)) {
             // client_fd = accept(master_socket, (struct sockaddr*)NULL, NULL);
             new_connected_fd = accept(master_socket, (struct sockaddr*)&address, &addrlen);
