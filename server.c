@@ -51,6 +51,7 @@ int main(void) {
     while (true) {
         FD_ZERO(&readfds);
         FD_SET(master_socket, &readfds);
+        maxfd = master_socket;
 
         for (i = 0; i < MAX_CLIENTS; i++) {
             sd = clientfds[i];
@@ -71,6 +72,7 @@ int main(void) {
             fflush(stdout);
         } else if (fds_to_read < 0) {
             perror("Server select error\n");
+            // TODO: perhaps remove the bad file descriptor ? seems to cause loop if a fd is added but then disconnects, like a request that is cancelled
             continue;
         }
 

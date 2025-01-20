@@ -11,7 +11,7 @@
 #define PORT 8080
 #define MAX_BUFFER_SIZE 2048
 #define LOCAL_HOST "127.0.0.1"
-#define MAX_CLIENTS 4
+#define MAX_CLIENTS 10
 
 typedef struct Connect_Send {
     int socketfd;
