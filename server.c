@@ -5,17 +5,6 @@ int main(void) {
     struct sockaddr_in address;
     int opt, i;
     socklen_t addrlen = sizeof(address);
-    char* message = "HTTP/1.1 200 OK\n"
-            "Date: Mon, 20 Jan 2025 00:00:00 GMT\n"
-            "Server: Apache/2.2.3\n"
-            "Last-Modified: Mon, 20 Jan 2025 00:00:00 GMT\n"
-            "ETag: \"56d-9989200-1132c580\"\n"
-            "Content-Type: text/html\n"
-            "Content-Length: 15\n"
-            "Accept-Ranges: bytes\n"
-            "Connection: keep-alive\n"
-            "\n"
-            "Hello World!\0";
     char buffer[MAX_BUFFER_SIZE] = {0};
     int clientfds[MAX_CLIENTS] = {0};
     fd_set readfds;
@@ -64,17 +53,7 @@ int main(void) {
         FD_SET(master_socket, &readfds);
         maxfd = master_socket;
 
-        for (i = 0; i < MAX_CLIENTS; i++) {
-            sd = clientfds[i];
-            FD_SET(sd, &readfds);
-            if (sd > maxfd) {
-                maxfd = sd;
-            }
-        }
-
-        if (sd > maxfd) {
-            maxfd = sd;
-        }
+        set_fds(&readfds, clientfds, &maxfd);
 
         // https://linux.die.net/man/2/select, timeout being NULL means select can block indefinitely
         fds_to_read = select(maxfd + 1, &readfds, NULL, NULL, NULL);
@@ -84,6 +63,7 @@ int main(void) {
         } else if (fds_to_read < 0) {
             perror("Server select error\n");
             // TODO: perhaps remove the bad file descriptor ? seems to cause loop if a fd is added but then disconnects, like a request that is cancelled
+            // if file descriptor is closed but still exists in list this seems to occur
             continue;
         }
 
@@ -98,15 +78,6 @@ int main(void) {
         }
         fprintf(stdout, "connection established\n");
         fflush(stdout);
-
-        // Before sending to socket, first formulate a http request to send
-        
-        bytes_sent = send_http_ok(new_connected_fd);
-        if (bytes_sent != strlen(message)) {
-            perror("Failure sending message to client\n");
-            continue;
-        }
-        print_stdout("Message successfully sent!\n");
         // add new socket to list
         for (i = 0; i < MAX_CLIENTS; i++) {
             if (clientfds[i] == 0) {
@@ -116,10 +87,12 @@ int main(void) {
             }
         }
 
+        set_fds(&readfds, clientfds, &maxfd);
+
         for (i = 0; i < MAX_CLIENTS; i++) {
             sd = clientfds[i];
 
-            if (FD_ISSET(sd, &readfds)) {
+            if (sd != 0 && FD_ISSET(sd, &readfds)) {
                 dataread = read(sd, buffer, MAX_BUFFER_SIZE);
                 // 0 bytes meant no data was read, that means client was added but,
                 // disconnected eventually as no data is available to be read, close the socket as well
@@ -138,8 +111,10 @@ int main(void) {
                 } else {
                     print_stdout("message from client\n");
                     print_stdout(buffer);
-                    buffer[dataread] = '\0';
-                    send(sd, buffer, strlen(buffer), 0);
+                    // Respond to client with http ok
+                    send_http_ok(sd);
+                    close(sd);
+                    clientfds[i] = 0;
                 }
             }
         }

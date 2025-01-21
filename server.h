@@ -8,6 +8,7 @@
 
 // declarations
 ssize_t send_http_ok(int socket);
+void set_fds(fd_set* readfds, int clientfds[], int* maxfd);
 
 // definitions
 ssize_t send_http_ok(int socket) {
@@ -16,16 +17,30 @@ ssize_t send_http_ok(int socket) {
     sprintf(response, 
             "HTTP/1.1 200 OK\n"
             "Date: Mon, 20 Jan 2025 00:00:00 GMT\n"
-            "Server: Apache/2.2.3\n"
+            "Server: Timbo/Server\n"
             "Last-Modified: Mon, 20 Jan 2025 00:00:00 GMT\n"
-            "ETag: \"56d-9989200-1132c580\"\n"
             "Content-Type: text/html\n"
-            "Content-Length: 15\n"
-            "Accept-Ranges: bytes\n"
             "Connection: close\n"
             "\n"
             "Hello World!\0");
     ssize_t bytes_sent = send(socket, response, strlen(response), 0);
     return bytes_sent;
 }
+
+// Summary
+// Add file descriptors to the fd_set so that server will respond to the client
+void set_fds(fd_set* readfds, int clientfds[], int* maxfd) {
+    int sd;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        sd = clientfds[i];
+        FD_SET(sd, readfds);
+        if (sd > *maxfd) {
+            *maxfd = sd;
+        }
+    }
+    if (sd > *maxfd) {
+        *maxfd = sd;
+    }
+}
+
 #endif
