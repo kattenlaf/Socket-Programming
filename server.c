@@ -5,7 +5,17 @@ int main(void) {
     struct sockaddr_in address;
     int opt, i;
     socklen_t addrlen = sizeof(address);
-    char* message = "Hello from server\n";
+    char* message = "HTTP/1.1 200 OK\n"
+            "Date: Mon, 20 Jan 2025 00:00:00 GMT\n"
+            "Server: Apache/2.2.3\n"
+            "Last-Modified: Mon, 20 Jan 2025 00:00:00 GMT\n"
+            "ETag: \"56d-9989200-1132c580\"\n"
+            "Content-Type: text/html\n"
+            "Content-Length: 15\n"
+            "Accept-Ranges: bytes\n"
+            "Connection: keep-alive\n"
+            "\n"
+            "Hello World!\0";
     char buffer[MAX_BUFFER_SIZE] = {0};
     int clientfds[MAX_CLIENTS] = {0};
     fd_set readfds;
@@ -47,6 +57,7 @@ int main(void) {
     int maxfd;
     int sd = 0;
     int fds_to_read;
+    ssize_t bytes_sent;
 
     while (true) {
         FD_ZERO(&readfds);
@@ -88,7 +99,10 @@ int main(void) {
         fprintf(stdout, "connection established\n");
         fflush(stdout);
 
-        if (send(new_connected_fd, message, strlen(message), 0) != strlen(message)) {
+        // Before sending to socket, first formulate a http request to send
+        
+        bytes_sent = send_http_ok(new_connected_fd);
+        if (bytes_sent != strlen(message)) {
             perror("Failure sending message to client\n");
             continue;
         }
