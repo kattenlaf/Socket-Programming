@@ -5,7 +5,6 @@ int main(void) {
     struct sockaddr_in address;
     int opt, i;
     socklen_t addrlen = sizeof(address);
-    char* message = "Hello from server\n";
     char buffer[MAX_BUFFER_SIZE] = {0};
     int clientfds[MAX_CLIENTS] = {0};
     fd_set readfds;
@@ -47,23 +46,14 @@ int main(void) {
     int maxfd;
     int sd = 0;
     int fds_to_read;
+    ssize_t bytes_sent;
 
     while (true) {
         FD_ZERO(&readfds);
         FD_SET(master_socket, &readfds);
         maxfd = master_socket;
 
-        for (i = 0; i < MAX_CLIENTS; i++) {
-            sd = clientfds[i];
-            FD_SET(sd, &readfds);
-            if (sd > maxfd) {
-                maxfd = sd;
-            }
-        }
-
-        if (sd > maxfd) {
-            maxfd = sd;
-        }
+        Set_fds(&readfds, clientfds, &maxfd);
 
         // https://linux.die.net/man/2/select, timeout being NULL means select can block indefinitely
         fds_to_read = select(maxfd + 1, &readfds, NULL, NULL, NULL);
@@ -73,6 +63,7 @@ int main(void) {
         } else if (fds_to_read < 0) {
             perror("Server select error\n");
             // TODO: perhaps remove the bad file descriptor ? seems to cause loop if a fd is added but then disconnects, like a request that is cancelled
+            // if file descriptor is closed but still exists in list this seems to occur
             continue;
         }
 
@@ -87,12 +78,6 @@ int main(void) {
         }
         fprintf(stdout, "connection established\n");
         fflush(stdout);
-
-        if (send(new_connected_fd, message, strlen(message), 0) != strlen(message)) {
-            perror("Failure sending message to client\n");
-            continue;
-        }
-        print_stdout("Message successfully sent!\n");
         // add new socket to list
         for (i = 0; i < MAX_CLIENTS; i++) {
             if (clientfds[i] == 0) {
@@ -102,10 +87,12 @@ int main(void) {
             }
         }
 
+        Set_fds(&readfds, clientfds, &maxfd);
+
         for (i = 0; i < MAX_CLIENTS; i++) {
             sd = clientfds[i];
 
-            if (FD_ISSET(sd, &readfds)) {
+            if (sd != 0 && FD_ISSET(sd, &readfds)) {
                 dataread = read(sd, buffer, MAX_BUFFER_SIZE);
                 // 0 bytes meant no data was read, that means client was added but,
                 // disconnected eventually as no data is available to be read, close the socket as well
@@ -124,8 +111,12 @@ int main(void) {
                 } else {
                     print_stdout("message from client\n");
                     print_stdout(buffer);
-                    buffer[dataread] = '\0';
-                    send(sd, buffer, strlen(buffer), 0);
+                    // Respond to client with http ok
+                    // pass buffer to send_http method
+                    // Send_Http_OK(sd, NULL);
+                    Handle_Client_Request(sd, buffer);
+                    close(sd);
+                    clientfds[i] = 0;
                 }
             }
         }

@@ -12,6 +12,8 @@
 #define MAX_BUFFER_SIZE 2048
 #define LOCAL_HOST "127.0.0.1"
 #define MAX_CLIENTS 10
+#define MAX_LINE_SIZE 100
+#define HTTP_VERSION "HTTP/1.1"
 
 typedef struct Connect_Send {
     int socketfd;
