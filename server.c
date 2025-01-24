@@ -53,7 +53,7 @@ int main(void) {
         FD_SET(master_socket, &readfds);
         maxfd = master_socket;
 
-        set_fds(&readfds, clientfds, &maxfd);
+        Set_fds(&readfds, clientfds, &maxfd);
 
         // https://linux.die.net/man/2/select, timeout being NULL means select can block indefinitely
         fds_to_read = select(maxfd + 1, &readfds, NULL, NULL, NULL);
@@ -87,7 +87,7 @@ int main(void) {
             }
         }
 
-        set_fds(&readfds, clientfds, &maxfd);
+        Set_fds(&readfds, clientfds, &maxfd);
 
         for (i = 0; i < MAX_CLIENTS; i++) {
             sd = clientfds[i];
@@ -113,7 +113,8 @@ int main(void) {
                     print_stdout(buffer);
                     // Respond to client with http ok
                     // pass buffer to send_http method
-                    send_http_ok(sd, buffer);
+                    // Send_Http_OK(sd, NULL);
+                    Handle_Client_Request(sd, buffer);
                     close(sd);
                     clientfds[i] = 0;
                 }
