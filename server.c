@@ -112,7 +112,8 @@ int main(void) {
                     print_stdout("message from client\n");
                     print_stdout(buffer);
                     // Respond to client with http ok
-                    send_http_ok(sd);
+                    // pass buffer to send_http method
+                    send_http_ok(sd, buffer);
                     close(sd);
                     clientfds[i] = 0;
                 }
