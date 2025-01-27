@@ -14,6 +14,8 @@
 #define MAX_CLIENTS 10
 #define MAX_LINE_SIZE 100
 #define HTTP_VERSION "HTTP/1.1"
+#define DEBUG_MSG 512
+#define ERROR_MSG 256
 
 typedef struct Connect_Send {
     int socketfd;
@@ -29,4 +31,9 @@ void close_fd_return(int socketfd) {
 void print_stdout(char* msg) {
     fprintf(stdout, msg);
     fflush(stdout);
+}
+
+void print_stderr(char* msg) {
+    fprintf(stderr, msg);
+    fflush(stderr);
 }

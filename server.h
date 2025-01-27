@@ -9,6 +9,7 @@
 #define HTML_FILE_RESPONSE 2048
 #define MAX_FILENAME_SIZE 255
 #define SERVER_NAME "TimboG/Server"
+#define STATUS_LINE 64
 
 typedef enum RESPONSE_CODE {
     SUCCESS = 200,
@@ -29,42 +30,17 @@ typedef enum REQUEST_TYPE {
 } REQUEST_TYPE;
 
 // declarations
-ssize_t Send_Http_OK(int socket, FILE* fptr);
+// ------------
 char* Open_Read_File(FILE* fptr, RESPONSE_CODE* response);
 void Set_fds(fd_set* readfds, int clientfds[], int* maxfd);
 void Handle_Client_Request(int socket, char* client_buffer);
 bool Handle_Get_Request(int socket, char* resource);
 ssize_t Respond_Client(int socket, FILE* fptr);
-void Build_Response(char server_buf[], char message_body[]);
+void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE response_code);
 REQUEST_TYPE Get_Request_Type(char* request_moniker);
 
 // definitions
-
-// Summary
-// build http ok message and respond to client
-ssize_t Send_Http_OK(int socket, FILE* fptr) {
-    char server_buffer[RESPONSE_MSG];
-    char msg_body[MAX_BUFFER_SIZE];
-    Build_Response(server_buffer, msg_body);
-    ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
-    return bytes_sent;
-}
-
-void Build_Response(char server_buf[], char message_body[]) {
-    time_t t = time(NULL);
-    struct tm* tm = localtime(&t);
-    char current_time[64];
-    size_t ret = strftime(current_time, sizeof(current_time), "%c", tm);
-    sprintf(server_buf, 
-        "%s 200 OK\n"
-        "Date: %s\n"
-        "Server: %s\n"
-        "Content-Type: text/html\n"
-        "Connection: close\n"
-        "\n"
-        "%s\0", HTTP_VERSION, current_time, SERVER_NAME, message_body);
-}
-
+// -----------
 // Summary
 // Add file descriptors to the fd_set so that server will respond to the client
 void Set_fds(fd_set* readfds, int clientfds[], int* maxfd) {
@@ -116,7 +92,63 @@ void Handle_Client_Request(int socket, char* client_buffer) {
     switch (request_type) {
         case GET:
             result = Handle_Get_Request(socket, resource);
+            break;
     }
+
+    if (result) {
+        char debug_log[DEBUG_MSG];
+        sprintf(debug_log, "Successfully sent request with resource:{%s} using socket:{%d}\t", resource, socket);
+        print_stdout(debug_log);
+    } else {
+        char err[ERROR_MSG];
+        sprintf(err, "Error sending request with resource:{%s} using socket:{%d}\n", resource, socket);
+        print_stderr(err);
+    }
+}
+
+bool Handle_Get_Request(int socket, char* resource) {
+    int result = strcmp("/", resource);
+    if (result == 0) {
+        resource = strcat(resource, "index.html"); // return index.html by default
+    }
+    if (resource[0] == '/') {
+        memmove(resource, resource+1, strlen(resource));
+        FILE* fptr;
+        fptr = fopen(resource, "r");
+        ssize_t bytes_sent = Respond_Client(socket, fptr);
+        if (bytes_sent < 0) {
+            char error_msg[ERROR_MSG];
+            sprintf(error_msg, "Error sending response to client\nRequest resource:{%s}\t Socket Used: {%d}\n", resource, socket);
+            print_stderr(error_msg);
+        }
+        return true;
+    } // else respond with expected format for request, perhaps use some default file to request this from client
+}
+
+void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE response_code) {
+    time_t t = time(NULL);
+    struct tm* tm = localtime(&t);
+    char current_time[64];
+    size_t ret = strftime(current_time, sizeof(current_time), "%c", tm);
+    char status_line[STATUS_LINE];
+    sprintf(status_line, "%s ", HTTP_VERSION);
+    switch (response_code) {
+        case (SUCCESS):
+            strcat(status_line, "200 OK");
+            break;
+        case (NOT_FOUND):
+            strcat(status_line, "404 Not Found");
+            sprintf(message_body, "Resource not found\n");
+            break;
+    }
+    sprintf(server_buf, 
+        "%s\n"
+        "Date: %s\n"
+        "Server: %s\n"
+        "Content-Type: text/html\n"
+        "Connection: close\n"
+        "\n"
+        "%s\0", status_line, current_time, SERVER_NAME, message_body);
 }
 
 REQUEST_TYPE Get_Request_Type(char* request_moniker) {
@@ -130,20 +162,6 @@ REQUEST_TYPE Get_Request_Type(char* request_moniker) {
     return GET;
 }
 
-bool Handle_Get_Request(int socket, char* resource) {
-    int result = strcmp("/", resource);
-    if (result == 0) {
-        resource = strcat(resource, "index.html"); // return index.html by default
-    }
-    if (resource[0] == '/') {
-        memmove(resource, resource+1, strlen(resource));
-        FILE* fptr;
-        fptr = fopen(resource, "r");
-        ssize_t bytes_sent = Respond_Client(socket, fptr);
-        return true;
-    }
-}
-
 ssize_t Respond_Client(int socket, FILE* fptr) {
     RESPONSE_CODE response = SUCCESS;
     char server_buffer[RESPONSE_MSG];
@@ -153,7 +171,7 @@ ssize_t Respond_Client(int socket, FILE* fptr) {
         response = NOT_FOUND;
     }
     char* msg_body = Open_Read_File(fptr, &response);
-    Build_Response(server_buffer, msg_body);
+    Build_Response(server_buffer, msg_body, response);
     ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
     return bytes_sent;
 }
