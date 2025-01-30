@@ -111,7 +111,6 @@ int main(void) {
                 } else {
                     print_stdout("message from client\n");
                     print_stdout(buffer);
-                    // Handle Client Request
                     Handle_Client_Request(sd, buffer);
                     close(sd);
                     clientfds[i] = 0;

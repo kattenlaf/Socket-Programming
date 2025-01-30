@@ -13,7 +13,7 @@
 #define LOCAL_HOST "127.0.0.1"
 #define MAX_CLIENTS 10
 #define MAX_LINE_SIZE 100
-#define HTTP_VERSION "HTTP/1.1"
+#define HTTP_VERSION "HTTP/1.0"
 #define DEBUG_MSG 512
 #define ERROR_MSG 256
 

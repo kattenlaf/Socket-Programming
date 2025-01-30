@@ -10,6 +10,7 @@
 #define MAX_FILENAME_SIZE 255
 #define SERVER_NAME "TimboG/Server"
 #define STATUS_LINE 64
+#define SUPPORTED_REQUESTS 4
 
 typedef enum RESPONSE_CODE {
     SUCCESS = 200,
@@ -26,8 +27,28 @@ typedef enum REQUEST_TYPE {
     DEFAULT,
     GET,
     PUT,
-    POST
+    POST,
+    DELETE
 } REQUEST_TYPE;
+
+typedef enum CONTENT_TYPE {
+    APPLICATION_JSON = 0,
+    TEXT_HTML,
+    TEXT_PLAIN
+} CONTENT_TYPE;
+
+const char* REQUEST_TYPES_LIST[] = {
+    "GET",
+    "PUT",
+    "POST",
+    "DELETE"
+};
+
+const char* CONTENT_TYPE_LIST[] = {
+    "application/json",
+    "text/html",
+    "text/plain"
+};
 
 // declarations
 // ------------
@@ -38,6 +59,7 @@ bool Handle_Get_Request(int socket, char* resource);
 ssize_t Respond_Client(int socket, FILE* fptr);
 void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE response_code);
 REQUEST_TYPE Get_Request_Type(char* request_moniker);
+bool Handle_Incorrect_Request(int socket, char error_msg[]);
 
 // definitions
 // -----------
@@ -93,6 +115,10 @@ void Handle_Client_Request(int socket, char* client_buffer) {
         case GET:
             result = Handle_Get_Request(socket, resource);
             break;
+        case DEFAULT:
+            // respond with 400
+            Handle_Incorrect_Request(socket, "");
+            break;
     }
 
     if (result) {
@@ -123,8 +149,13 @@ bool Handle_Get_Request(int socket, char* resource) {
         }
         return true;
     } // else respond with expected format for request, perhaps use some default file to request this from client
+    Handle_Incorrect_Request(socket, "GET requested has incorrect formatting, please fix!\n");
 }
 
+// Summary
+// server_buf contains full string that is sent back to the client
+// message_body contains string held in message section of http response
+// response_code denotes the type of response being sent
 void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE response_code) {
     time_t t = time(NULL);
     struct tm* tm = localtime(&t);
@@ -132,40 +163,48 @@ void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE respon
     size_t ret = strftime(current_time, sizeof(current_time), "%c", tm);
     char status_line[STATUS_LINE];
     sprintf(status_line, "%s ", HTTP_VERSION);
+    CONTENT_TYPE content_type;
     switch (response_code) {
         case (SUCCESS):
             strcat(status_line, "200 OK");
+            content_type = TEXT_HTML;
             break;
         case (NOT_FOUND):
             strcat(status_line, "404 Not Found");
             sprintf(message_body, "Resource not found\n");
+            content_type = TEXT_HTML;
+            break;
+        case (BAD_REQUEST):
+            strcat(status_line, "400 Bad Request");
+            strcat(message_body, "\nRequest formatted incorrectly, please fix and reattempt\n");
+            content_type = TEXT_PLAIN;
             break;
     }
     sprintf(server_buf, 
         "%s\n"
         "Date: %s\n"
         "Server: %s\n"
-        "Content-Type: text/html\n"
+        "Content-Type: %s\n"
         "Connection: close\n"
         "\n"
-        "%s\0", status_line, current_time, SERVER_NAME, message_body);
+        "%s\0", status_line, current_time, SERVER_NAME, CONTENT_TYPE_LIST[content_type],message_body);
 }
 
 REQUEST_TYPE Get_Request_Type(char* request_moniker) {
     int result = -1;
-    result = strcmp("GET", request_moniker);
-    if (result == 0) {
-        return GET;
+    for (int i = 0; i < SUPPORTED_REQUESTS; i++) {
+        result = strcmp(REQUEST_TYPES_LIST[i], request_moniker);
+        if (result == 0) {
+            return (REQUEST_TYPE) (i + 1);
+        }
     }
-
-    // Return get by default
-    return GET;
+    // This indicates there was not a match
+    return DEFAULT;
 }
 
 ssize_t Respond_Client(int socket, FILE* fptr) {
     RESPONSE_CODE response = SUCCESS;
     char server_buffer[RESPONSE_MSG];
-    char document[MAX_BUFFER_SIZE];
     char line[MAX_LINE_SIZE];
     if (fptr == NULL) {
         response = NOT_FOUND;
@@ -173,6 +212,7 @@ ssize_t Respond_Client(int socket, FILE* fptr) {
     char* msg_body = Open_Read_File(fptr, &response);
     Build_Response(server_buffer, msg_body, response);
     ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
+    free(msg_body);
     return bytes_sent;
 }
 
@@ -188,6 +228,22 @@ char* Open_Read_File(FILE* fptr, RESPONSE_CODE* response) {
         }
     }
     return body;
+}
+
+bool Handle_Incorrect_Request(int socket, char error_msg[]) {
+    RESPONSE_CODE response = BAD_REQUEST;
+    char server_buffer[RESPONSE_MSG];
+    char* msg_body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
+    sprintf(msg_body, error_msg);
+    Build_Response(server_buffer, msg_body, response);
+    ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
+    free(msg_body);
+    if (bytes_sent < 0) {
+        // some error occurred
+        perror("Error responding with bad request to client\n");
+        return false;
+    }
+    return true;
 }
 
 #endif
