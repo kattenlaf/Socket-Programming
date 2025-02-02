@@ -11,6 +11,9 @@
 #define SERVER_NAME "TimboG/Server"
 #define STATUS_LINE 64
 #define SUPPORTED_REQUESTS 4
+#define AUTHENTICATION "Authorization"
+#define MAX_TOKEN_SIZE 255
+#define CLIENT_TOKEN "1234"
 
 typedef enum RESPONSE_CODE {
     SUCCESS = 200,
@@ -37,6 +40,11 @@ typedef enum CONTENT_TYPE {
     TEXT_PLAIN
 } CONTENT_TYPE;
 
+typedef struct Token {
+    char* value;
+    bool valid;
+} Token;
+
 const char* REQUEST_TYPES_LIST[] = {
     "GET",
     "PUT",
@@ -55,11 +63,14 @@ const char* CONTENT_TYPE_LIST[] = {
 char* Open_Read_File(FILE* fptr, RESPONSE_CODE* response);
 void Set_fds(fd_set* readfds, int clientfds[], int* maxfd);
 void Handle_Client_Request(int socket, char* client_buffer);
-bool Handle_Get_Request(int socket, char* resource);
-ssize_t Respond_Client(int socket, FILE* fptr);
+bool Handle_Get_Request(int socket, char* resource, char* client_buffer);
+ssize_t Respond_Client(int socket, FILE* fptr, RESPONSE_CODE res);
 void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE response_code);
 REQUEST_TYPE Get_Request_Type(char* request_moniker);
 bool Handle_Incorrect_Request(int socket, char error_msg[]);
+bool Check_Access(char* resource, char* client_buffer, int check_mode);
+Token Parse_Token(char* authorization);
+bool Is_Client_Token(Token token);
 
 // definitions
 // -----------
@@ -113,7 +124,7 @@ void Handle_Client_Request(int socket, char* client_buffer) {
     bool result = true;
     switch (request_type) {
         case GET:
-            result = Handle_Get_Request(socket, resource);
+            result = Handle_Get_Request(socket, resource, client_buffer);
             break;
         case DEFAULT:
             // respond with 400
@@ -132,16 +143,27 @@ void Handle_Client_Request(int socket, char* client_buffer) {
     }
 }
 
-bool Handle_Get_Request(int socket, char* resource) {
+bool Handle_Get_Request(int socket, char* resource, char* client_buffer) {
     int result = strcmp("/", resource);
+    RESPONSE_CODE response = SUCCESS;
     if (result == 0) {
         resource = strcat(resource, "index.html"); // return index.html by default
     }
     if (resource[0] == '/') {
         memmove(resource, resource+1, strlen(resource));
         FILE* fptr;
-        fptr = fopen(resource, "r");
-        ssize_t bytes_sent = Respond_Client(socket, fptr);
+        if (access(resource, F_OK) == 0) {
+            // check if user has permission
+            if (Check_Access(resource, client_buffer, R_OK)) {
+                fptr = fopen(resource, "r");
+            } else {
+                response = UNAUTHORIZED;
+                fptr = NULL;
+            }
+        } else {
+            fptr = NULL;
+        }
+        ssize_t bytes_sent = Respond_Client(socket, fptr, response);
         if (bytes_sent < 0) {
             char error_msg[ERROR_MSG];
             sprintf(error_msg, "Error sending response to client\nRequest resource:{%s}\t Socket Used: {%d}\n", resource, socket);
@@ -153,6 +175,8 @@ bool Handle_Get_Request(int socket, char* resource) {
 }
 
 // Summary
+// Builds response to send to client
+// Params
 // server_buf contains full string that is sent back to the client
 // message_body contains string held in message section of http response
 // response_code denotes the type of response being sent
@@ -176,7 +200,12 @@ void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE respon
             break;
         case (BAD_REQUEST):
             strcat(status_line, "400 Bad Request");
-            strcat(message_body, "\nRequest formatted incorrectly, please fix and reattempt\n");
+            strcat(message_body, "Request formatted incorrectly, please fix and reattempt\n");
+            content_type = TEXT_PLAIN;
+            break;
+        case (UNAUTHORIZED):
+            strcat(status_line, "401 Unauthorized");
+            strcat(message_body, "User does not have access to resource\n");
             content_type = TEXT_PLAIN;
             break;
     }
@@ -202,13 +231,10 @@ REQUEST_TYPE Get_Request_Type(char* request_moniker) {
     return DEFAULT;
 }
 
-ssize_t Respond_Client(int socket, FILE* fptr) {
-    RESPONSE_CODE response = SUCCESS;
+ssize_t Respond_Client(int socket, FILE* fptr, RESPONSE_CODE res) {
+    RESPONSE_CODE response = res;
     char server_buffer[RESPONSE_MSG];
     char line[MAX_LINE_SIZE];
-    if (fptr == NULL) {
-        response = NOT_FOUND;
-    }
     char* msg_body = Open_Read_File(fptr, &response);
     Build_Response(server_buffer, msg_body, response);
     ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
@@ -219,10 +245,12 @@ ssize_t Respond_Client(int socket, FILE* fptr) {
 // Open and read file to send back to client
 char* Open_Read_File(FILE* fptr, RESPONSE_CODE* response) {
     char* body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
-    char line[MAX_LINE_SIZE];
     if (fptr == NULL) {
-        *response = NOT_FOUND;
+        if (*response == SUCCESS) {
+            *response = NOT_FOUND;
+        }
     } else {
+        char line[MAX_LINE_SIZE];
         while(fgets(line, MAX_LINE_SIZE, fptr)) {
             strcat(body, line);
         }
@@ -244,6 +272,69 @@ bool Handle_Incorrect_Request(int socket, char error_msg[]) {
         return false;
     }
     return true;
+}
+
+bool Check_Access(char* resource, char* client_buffer, int check_mode) {
+    // Check if resource permissions allowed, also maybe implement a client auth system.
+    const char* current_line = client_buffer;
+    Token token;
+    token.valid = false;
+    if (check_mode == R_OK && access(resource, check_mode) == 0) {
+        // parse client_buffer for details, authenticate user and then allow read
+        while(current_line) {
+            const char* next_line = strchr(current_line, '\n');
+            int current_line_len = next_line ? (next_line-current_line) : strlen(current_line);
+            char* temp_current_line = (char*)malloc(current_line_len+1);
+            if (temp_current_line) {
+                memcpy(temp_current_line, current_line, current_line_len);
+                temp_current_line[current_line_len] = '\0';
+                // Check for the authorization header in temp
+                // Authorization: Bearer 123456
+                char* authorization = strstr(temp_current_line, AUTHENTICATION);
+                if (authorization) {
+                    token = Parse_Token(authorization);
+                    free(temp_current_line);
+                    break;
+                }
+                free(temp_current_line);
+            }  
+            current_line = next_line ? (next_line+1) : NULL;
+        }
+    }
+    return Is_Client_Token(token);
+}
+
+Token Parse_Token(char* authorization) {
+    int spaces = 2;
+    char token_string[MAX_TOKEN_SIZE];
+    Token token;
+    token.valid = false;
+    int token_pos = 0;
+    int length = strlen(authorization);
+    for (int i = 0; i < strlen(authorization); i++) {
+        if (spaces == 0) {
+            token_string[token_pos] = authorization[i];
+            token_pos++;
+        }
+        if (authorization[i] == ' ') {
+            spaces--;
+        }
+    }
+    if (spaces == 0) {
+        token.valid = true;
+        token.value = token_string;
+    }
+    token.value[strcspn(token.value, "\r\n")] = 0;
+    return token;
+}
+
+bool Is_Client_Token(Token token) {
+    if (!token.valid) {
+        return token.valid;
+    }
+    // maybe bolster this somehow but for now will just do a simple check
+    int result = strcmp(token.value, CLIENT_TOKEN);
+    return result == 0;
 }
 
 #endif
