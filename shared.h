@@ -14,8 +14,7 @@
 #define MAX_CLIENTS 10
 #define MAX_LINE_SIZE 100
 #define HTTP_VERSION "HTTP/1.0"
-#define DEBUG_MSG 512
-#define ERROR_MSG 256
+#define SERVER_MSG 512
 
 typedef struct Connect_Send {
     int socketfd;
