@@ -1,9 +1,13 @@
-#include "shared.h"
-#include <sys/select.h>
-#include <time.h>
-
 #ifndef __SERVER_H
 #define __SERVER_H
+#include "shared.h"
+#include "linkedlist.h"
+#include <sys/select.h>
+#include <time.h>
+#include <vendor/cJSON.h>
+
+// server constants
+// ----------------
 #define MAXIMUM_BACKLOG_CONNECTIONS 3
 #define RESPONSE_MSG 4096
 #define HTML_FILE_RESPONSE 2048
@@ -15,6 +19,8 @@
 #define MAX_TOKEN_SIZE 255
 #define CLIENT_TOKEN "1234"
 
+// server statuses etc
+// -------------------
 typedef enum RESPONSE_CODE {
     SUCCESS = 200,
     CREATED,
@@ -58,25 +64,48 @@ const char* CONTENT_TYPE_LIST[] = {
     "text/plain"
 };
 
+// Summary
+// primary context for hold server state at a given time
+typedef struct Server_Context {
+    List* message_bus;
+    RESPONSE_CODE response;
+    REQUEST_TYPE request_type;
+    CONTENT_TYPE content_type;
+    char* status_line;
+} Server_Context;
+
 // declarations
 // ------------
-char* Open_Read_File(FILE* fptr, RESPONSE_CODE* response);
-void Set_fds(fd_set* readfds, int clientfds[], int* maxfd);
-void Handle_Client_Request(int socket, char* client_buffer);
-bool Handle_Get_Request(int socket, char* resource, char* client_buffer);
-ssize_t Respond_Client(int socket, FILE* fptr, RESPONSE_CODE res);
-void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE response_code);
-REQUEST_TYPE Get_Request_Type(char* request_moniker);
-bool Handle_Incorrect_Request(int socket, char error_msg[]);
-bool Check_Access(char* resource, char* client_buffer, int check_mode);
-Token Parse_Token(char* authorization);
-bool Is_Client_Token(Token token);
+char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response);
+void Setfds(fd_set* readfds, int clientfds[], int* maxfd);
+void HandleClientRequest(int socket, char* client_buffer, Server_Context* context);
+bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
+bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
+ssize_t RespondClient(int socket, FILE* fptr, Server_Context* context);
+void BuildResponse(char server_buf[], char message_body[], RESPONSE_CODE response_code, Server_Context* context);
+REQUEST_TYPE GetRequestType(char* request_moniker);
+bool HandleIncorrectRequest(int socket, char error_msg[], Server_Context* context);
+bool CheckAccess(Server_Context* context, char* resource, char* client_buffer, int check_mode);
+Token ParseToken(char* authorization);
+bool IsClientToken(Token token);
+Server_Context* InitContext();
 
 // definitions
 // -----------
+Server_Context* InitContext() {
+    Server_Context* context = malloc(sizeof(Server_Context));
+    context->request_type = DEFAULT;
+    context->response = SUCCESS;
+    context->message_bus = InitList();
+    context->status_line = malloc(sizeof(char) * STATUS_LINE);
+    context->content_type = TEXT_PLAIN;
+    return context;
+}
+
+
 // Summary
 // Add file descriptors to the fd_set so that server will respond to the client
-void Set_fds(fd_set* readfds, int clientfds[], int* maxfd) {
+void Setfds(fd_set* readfds, int clientfds[], int* maxfd) {
     int sd;
     for (int i = 0; i < MAX_CLIENTS; i++) {
         sd = clientfds[i];
@@ -92,18 +121,17 @@ void Set_fds(fd_set* readfds, int clientfds[], int* maxfd) {
 
 // Summary
 // Determine what type of request it is, if it is a GET request, parse in that format
-void Handle_Client_Request(int socket, char* client_buffer) {
+void HandleClientRequest(int socket, char* client_buffer, Server_Context* context) {
     int i = 0;
     int j = 0;
-    REQUEST_TYPE request_type = DEFAULT;
     char request_char[10];
     char resource[MAX_FILENAME_SIZE];
     int position = 0;
     while (client_buffer[i] != '\n') {
-        if (request_type == DEFAULT) {
+        if (context->request_type == DEFAULT) {
             if (client_buffer[i] == ' ') {
                 request_char[i] = '\0';
-                request_type = Get_Request_Type(request_char);
+                context->request_type = GetRequestType(request_char);
             } else {
                 request_char[i] = client_buffer[i];
             }
@@ -121,31 +149,32 @@ void Handle_Client_Request(int socket, char* client_buffer) {
         i++;
     }
 
+    // result is an indication that the response was sent successfully
     bool result = true;
-    switch (request_type) {
+    switch (context->request_type) {
         case GET:
-            result = Handle_Get_Request(socket, resource, client_buffer);
+            result = HandleGetRequest(socket, resource, client_buffer, context);
             break;
+        case POST:
+            result = HandlePostRequest(socket, resource, client_buffer, context);
         case DEFAULT:
             // respond with 400
-            Handle_Incorrect_Request(socket, "");
+            HandleIncorrectRequest(socket, "", context);
             break;
     }
 
+    char server_log[SERVER_MSG];
     if (result) {
-        char debug_log[DEBUG_MSG];
-        sprintf(debug_log, "Successfully sent request with resource:{%s} using socket:{%d}\t", resource, socket);
-        print_stdout(debug_log);
+        DumpContextMessages(context->message_bus, server_log, LOG);
+        print_stdout(server_log);
     } else {
-        char err[ERROR_MSG];
-        sprintf(err, "Error sending request with resource:{%s} using socket:{%d}\n", resource, socket);
-        print_stderr(err);
+        DumpContextMessages(context->message_bus, server_log, ERROR);
+        print_stderr(server_log);
     }
 }
 
-bool Handle_Get_Request(int socket, char* resource, char* client_buffer) {
+bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
     int result = strcmp("/", resource);
-    RESPONSE_CODE response = SUCCESS;
     if (result == 0) {
         resource = strcat(resource, "index.html"); // return index.html by default
     }
@@ -154,24 +183,49 @@ bool Handle_Get_Request(int socket, char* resource, char* client_buffer) {
         FILE* fptr;
         if (access(resource, F_OK) == 0) {
             // check if user has permission
-            if (Check_Access(resource, client_buffer, R_OK)) {
+            if (CheckAccess(context, resource, client_buffer, R_OK)) {
                 fptr = fopen(resource, "r");
             } else {
-                response = UNAUTHORIZED;
+                context->response = UNAUTHORIZED;
                 fptr = NULL;
             }
         } else {
             fptr = NULL;
         }
-        ssize_t bytes_sent = Respond_Client(socket, fptr, response);
+        ssize_t bytes_sent = RespondClient(socket, fptr, context);
         if (bytes_sent < 0) {
-            char error_msg[ERROR_MSG];
-            sprintf(error_msg, "Error sending response to client\nRequest resource:{%s}\t Socket Used: {%d}\n", resource, socket);
-            print_stderr(error_msg);
+            char server_log[SERVER_MSG];
+            sprintf(server_log, "Error sending response to client\nRequest resource:{%s}\t Socket Used: {%d}\n", resource, socket);
+            AddContextMessage(context->message_bus, server_log, ERROR);
+            return false;
         }
         return true;
-    } // else respond with expected format for request, perhaps use some default file to request this from client
-    Handle_Incorrect_Request(socket, "GET requested has incorrect formatting, please fix!\n");
+    } 
+    // else respond with expected format for request, perhaps use some default file to request this from client
+    HandleIncorrectRequest(socket, "GET requested has incorrect formatting, please fix!\n", context);
+}
+
+bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
+    // Introduce tomorrow
+    // Parse json file from request
+    // Handle whats needed and what resource to write to 
+    return true;
+}
+
+bool HandleIncorrectRequest(int socket, char error_msg[], Server_Context* context) {
+    RESPONSE_CODE response = BAD_REQUEST;
+    char server_buffer[RESPONSE_MSG];
+    char* msg_body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
+    sprintf(msg_body, error_msg);
+    BuildResponse(server_buffer, msg_body, response, context);
+    ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
+    free(msg_body);
+    if (bytes_sent < 0) {
+        // some error occurred
+        perror("Error responding with bad request to client\n");
+        return false;
+    }
+    return true;
 }
 
 // Summary
@@ -180,35 +234,35 @@ bool Handle_Get_Request(int socket, char* resource, char* client_buffer) {
 // server_buf contains full string that is sent back to the client
 // message_body contains string held in message section of http response
 // response_code denotes the type of response being sent
-void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE response_code) {
+void BuildResponse(char server_buf[], char message_body[], RESPONSE_CODE response_code, Server_Context* context) {
     time_t t = time(NULL);
     struct tm* tm = localtime(&t);
     char current_time[64];
     size_t ret = strftime(current_time, sizeof(current_time), "%c", tm);
-    char status_line[STATUS_LINE];
-    sprintf(status_line, "%s ", HTTP_VERSION);
+    sprintf(context->status_line, "%s ", HTTP_VERSION);
     CONTENT_TYPE content_type;
     switch (response_code) {
         case (SUCCESS):
-            strcat(status_line, "200 OK");
+            strcat(context->status_line, "200 OK");
             content_type = TEXT_HTML;
             break;
         case (NOT_FOUND):
-            strcat(status_line, "404 Not Found");
-            sprintf(message_body, "Resource not found\n");
+            strcat(context->status_line, "404 Not Found");
+            AddContextMessage(context->message_bus, "Resource not found\n", ERROR);
             content_type = TEXT_HTML;
             break;
         case (BAD_REQUEST):
-            strcat(status_line, "400 Bad Request");
-            strcat(message_body, "Request formatted incorrectly, please fix and reattempt\n");
+            strcat(context->status_line, "400 Bad Request");
+            AddContextMessage(context->message_bus, "Request formatted incorrectly, please fix and reattempt\n", ERROR);
             content_type = TEXT_PLAIN;
             break;
         case (UNAUTHORIZED):
-            strcat(status_line, "401 Unauthorized");
-            strcat(message_body, "User does not have access to resource\n");
+            strcat(context->status_line, "401 Unauthorized");
+            AddContextMessage(context->message_bus, "User does not have access to resource\n", ERROR);
             content_type = TEXT_PLAIN;
             break;
     }
+    DumpContextMessages(context->message_bus, message_body, ALL);
     sprintf(server_buf, 
         "%s\n"
         "Date: %s\n"
@@ -216,10 +270,10 @@ void Build_Response(char server_buf[], char message_body[], RESPONSE_CODE respon
         "Content-Type: %s\n"
         "Connection: close\n"
         "\n"
-        "%s\0", status_line, current_time, SERVER_NAME, CONTENT_TYPE_LIST[content_type],message_body);
+        "%s\0", context->status_line, current_time, SERVER_NAME, CONTENT_TYPE_LIST[content_type],message_body);
 }
 
-REQUEST_TYPE Get_Request_Type(char* request_moniker) {
+REQUEST_TYPE GetRequestType(char* request_moniker) {
     int result = -1;
     for (int i = 0; i < SUPPORTED_REQUESTS; i++) {
         result = strcmp(REQUEST_TYPES_LIST[i], request_moniker);
@@ -231,19 +285,18 @@ REQUEST_TYPE Get_Request_Type(char* request_moniker) {
     return DEFAULT;
 }
 
-ssize_t Respond_Client(int socket, FILE* fptr, RESPONSE_CODE res) {
-    RESPONSE_CODE response = res;
+ssize_t RespondClient(int socket, FILE* fptr, Server_Context* context) {
     char server_buffer[RESPONSE_MSG];
     char line[MAX_LINE_SIZE];
-    char* msg_body = Open_Read_File(fptr, &response);
-    Build_Response(server_buffer, msg_body, response);
+    char* msg_body = OpenReadFile(fptr, &context->response);
+    BuildResponse(server_buffer, msg_body, context->response, context);
     ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
     free(msg_body);
     return bytes_sent;
 }
 
 // Open and read file to send back to client
-char* Open_Read_File(FILE* fptr, RESPONSE_CODE* response) {
+char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response) {
     char* body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
     if (fptr == NULL) {
         if (*response == SUCCESS) {
@@ -258,27 +311,12 @@ char* Open_Read_File(FILE* fptr, RESPONSE_CODE* response) {
     return body;
 }
 
-bool Handle_Incorrect_Request(int socket, char error_msg[]) {
-    RESPONSE_CODE response = BAD_REQUEST;
-    char server_buffer[RESPONSE_MSG];
-    char* msg_body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
-    sprintf(msg_body, error_msg);
-    Build_Response(server_buffer, msg_body, response);
-    ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
-    free(msg_body);
-    if (bytes_sent < 0) {
-        // some error occurred
-        perror("Error responding with bad request to client\n");
-        return false;
-    }
-    return true;
-}
-
-bool Check_Access(char* resource, char* client_buffer, int check_mode) {
+bool CheckAccess(Server_Context* context, char* resource, char* client_buffer, int check_mode) {
     // Check if resource permissions allowed, also maybe implement a client auth system.
     const char* current_line = client_buffer;
     Token token;
     token.valid = false;
+    bool authHeaderExists = false;
     if (check_mode == R_OK && access(resource, check_mode) == 0) {
         // parse client_buffer for details, authenticate user and then allow read
         while(current_line) {
@@ -292,7 +330,8 @@ bool Check_Access(char* resource, char* client_buffer, int check_mode) {
                 // Authorization: Bearer 123456
                 char* authorization = strstr(temp_current_line, AUTHENTICATION);
                 if (authorization) {
-                    token = Parse_Token(authorization);
+                    authHeaderExists = true;
+                    token = ParseToken(authorization);
                     free(temp_current_line);
                     break;
                 }
@@ -300,11 +339,14 @@ bool Check_Access(char* resource, char* client_buffer, int check_mode) {
             }  
             current_line = next_line ? (next_line+1) : NULL;
         }
+        if (!authHeaderExists) {
+            AddContextMessage(context->message_bus, "Client error: Authorization header is not present\n", ERROR);
+        }
     }
-    return Is_Client_Token(token);
+    return IsClientToken(token);
 }
 
-Token Parse_Token(char* authorization) {
+Token ParseToken(char* authorization) {
     int spaces = 2;
     char token_string[MAX_TOKEN_SIZE];
     Token token;
@@ -328,7 +370,7 @@ Token Parse_Token(char* authorization) {
     return token;
 }
 
-bool Is_Client_Token(Token token) {
+bool IsClientToken(Token token) {
     if (!token.valid) {
         return token.valid;
     }

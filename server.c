@@ -10,6 +10,7 @@ int main(void) {
     fd_set readfds;
     size_t dataread;
     char prompt_messages[MAX_BUFFER_SIZE] = {0};
+    Server_Context* context;
 
     /* Set up socket and bind to port */
     if ((master_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -53,7 +54,7 @@ int main(void) {
         FD_SET(master_socket, &readfds);
         maxfd = master_socket;
 
-        Set_fds(&readfds, clientfds, &maxfd);
+        Setfds(&readfds, clientfds, &maxfd);
 
         // https://linux.die.net/man/2/select, timeout being NULL means select can block indefinitely
         fds_to_read = select(maxfd + 1, &readfds, NULL, NULL, NULL);
@@ -87,7 +88,7 @@ int main(void) {
             }
         }
 
-        Set_fds(&readfds, clientfds, &maxfd);
+        Setfds(&readfds, clientfds, &maxfd);
 
         for (i = 0; i < MAX_CLIENTS; i++) {
             sd = clientfds[i];
@@ -111,7 +112,9 @@ int main(void) {
                 } else {
                     print_stdout("message from client\n");
                     print_stdout(buffer);
-                    Handle_Client_Request(sd, buffer);
+                    context = InitContext();
+                    HandleClientRequest(sd, buffer, context);
+                    free(context);
                     close(sd);
                     clientfds[i] = 0;
                 }
