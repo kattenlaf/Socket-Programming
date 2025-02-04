@@ -4,7 +4,7 @@
 #include "linkedlist.h"
 #include <sys/select.h>
 #include <time.h>
-#include <vendor/cJSON.h>
+#include "vendor/cJSON.h"
 
 // server constants
 // ----------------
