@@ -3,3 +3,5 @@
 *.log
 *.json
 vendor/
+**TIMBOG**
+*.o

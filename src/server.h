@@ -1,7 +1,7 @@
 #ifndef __SERVER_H
 #define __SERVER_H
 #include "shared.h"
-#include "linkedlist.h"
+#include "helpers/linkedlist.h"
 #include <sys/select.h>
 #include <time.h>
 #include "vendor/cJSON.h"
@@ -207,8 +207,8 @@ bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Co
 
 bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
     // Introduce tomorrow
-    // Parse json file from request
-    // Handle whats needed and what resource to write to 
+    // Parse json file from request to enter into sqlite database
+    // find what table they are writing the data to
     return true;
 }
 
