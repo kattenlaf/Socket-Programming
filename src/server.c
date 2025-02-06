@@ -1,5 +1,5 @@
-#include "server.h" // https://man7.org/linux/man-pages/man2/listen.2.html
-// #include "helpers/database_operations.h"
+#include "src/server.h" // https://man7.org/linux/man-pages/man2/listen.2.html
+#include "src/helpers/database_operations.h"
 
 int main(void) {
     int master_socket, new_connected_fd; // File descriptor and new socket created on acceptance
@@ -113,9 +113,8 @@ int main(void) {
                     print_stdout("message from client\n");
                     print_stdout(buffer);
                     context = InitContext();
-                    // ExecuteQuery("TIMBOG_DEV", "name=snorlax", context->message_bus);
                     HandleClientRequest(sd, buffer, context);
-                    free(context);
+                    CleanContext(context);
                     close(sd);
                     clientfds[i] = 0;
                 }
