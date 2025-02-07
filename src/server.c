@@ -12,6 +12,7 @@ int main(void) {
     size_t dataread;
     char prompt_messages[MAX_BUFFER_SIZE] = {0};
     Server_Context* context;
+    InitDatabase();
 
     /* Set up socket and bind to port */
     if ((master_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {

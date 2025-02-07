@@ -64,8 +64,7 @@ const char* CONTENT_TYPE_LIST[] = {
     "text/plain"
 };
 
-// Summary
-// primary context for hold server state at a given time
+
 typedef struct Server_Context {
     List* message_bus;
     RESPONSE_CODE response;
@@ -242,7 +241,7 @@ bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_C
         context->response = BAD_REQUEST;
         return false;
     }
-    AddOrUpdateRow(resource, client_buffer);
+    AddOrUpdateRow(resource, client_buffer, context->message_bus);
     if (context->message_bus->tail->type == ERROR) {
         // This means database update failed
         return false;
