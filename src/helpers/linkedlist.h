@@ -1,7 +1,6 @@
 #ifndef LINKED_LIST
 #define LINKED_LIST
 #include <stdlib.h>
-#include "../vendor/cJSON.h"
 #define NODE_MSG_LEN 512
 
 typedef enum MESSAGE_TYPE {
@@ -95,43 +94,5 @@ List* InitList(void) {
     list->length = 0;
     return list;
 }
-
-typedef struct JsonNode {
-    cJSON* json;
-    struct JsonNode* next;
-} JsonNode;
-
-// Linked List for usage as a persistent memory bus for error messages and potentially other details that might be needed multiple places in server
-typedef struct JsonList {
-    JsonNode* head;
-    JsonNode* tail;
-    int length;
-} JsonList;
-
-// Summary
-// adds message to 
-void AddJsonNode(JsonList* list, cJSON* json) {
-    JsonNode* new_node = malloc(sizeof(JsonNode));
-    new_node->next = NULL;
-    
-    if (list->head == NULL && list->tail == NULL) {
-        list->head = new_node;
-        list->tail = list->head;
-    } else {
-        list->tail->next = new_node;
-        list->tail = list->tail->next;
-    }
-    list->length++;
-}
-
-// void DumpJsonNodes(JsonList* list, char* message_body) {
-//     if (list->length > 0) {
-//         JsonNode* current = list->head;
-//         while (current != NULL) {
-//             strcat(message_body, current->message);
-//             current = current->next;
-//         }
-//     }
-// }
 
 #endif

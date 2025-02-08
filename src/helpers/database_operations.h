@@ -1,8 +1,8 @@
 #ifndef DATABASE_OP
 #define DATABASE_OP
-#include "linkedlist.h"
+#include "src/helpers/linkedlist.h"
 #include "../vendor/sqlite3.h"
-#include "../vendor/cJSON.h"
+#include <json-c/json.h>
 #define TABLE_NAME_LEN 256
 #define DATABASE_ERROR_LEN 512
 #define DATABASE_NAME "TIMBOG_DEV.db"
@@ -10,7 +10,7 @@
 #define ERROR_MSG 256
 
 // declarations
-cJSON* ParseJson(char* buffer);
+json_object* ParseJson(char* buffer);
 
 char* GetDatabaseError(int rc, sqlite3* db);
 void LogDatabaseError(int rc, sqlite3* db, List* server_message_bus);
@@ -47,11 +47,15 @@ static int callback(void *unused, int col_count, char **data, char **columns)
 void InitDatabase() {
     sqlite3* db;
     int rc;
-    if (OpenDatabase(db, NULL)) {
-        char* sql = "CREATE TABLE POKEMON(" \
-                    "POKEDEX_NUM INT PRIMARY KEY NOT NULL" \
-                    "NAME                   TEXT NOT NULL" \
-                    "TYPE1                   INT NOT NULL" \
+    rc = sqlite3_open(DATABASE_NAME, &db);
+    if (rc == SQLITE_OK) {
+        char* sql;
+        sql = "DROP TABLE POKEMON;";
+        rc = sqlite3_exec(db, sql, callback, NULL, NULL);
+        sql = "CREATE TABLE POKEMON(" \
+                    "POKEDEX_NUM INT PRIMARY KEY NOT NULL," \
+                    "NAME                   TEXT NOT NULL," \
+                    "TYPE1                   INT NOT NULL," \
                     "TYPE2                   INT );";
         rc = sqlite3_exec(db, sql, callback, NULL, NULL);
         if (rc != SQLITE_OK) {
@@ -60,13 +64,17 @@ void InitDatabase() {
             fflush(stderr);
             free(error);
         }
+    } else {
+        LogDatabaseError(rc, db, NULL);
     }
+    sqlite3_close(db);
 }
 
 void ExecuteQuery(char* query, List* server_message_bus) {
-    sqlite3* db;
-    int rc;
-    if (OpenDatabase(db, server_message_bus)) {
+    sqlite3* db = NULL;
+    int rc = 0;
+    rc = sqlite3_open(DATABASE_NAME, &db);
+    if (rc != SQLITE_OK) {
         rc = sqlite3_exec(db, query, callback, NULL, NULL);
         if (rc != SQLITE_OK) {
             LogDatabaseError(rc, db, server_message_bus);
@@ -106,24 +114,23 @@ bool OpenDatabase(sqlite3* db, List* server_message_bus) {
  */
 // TODO FIX COMPILATION ISSUES
 void AddOrUpdateRow(char* table_name, char* client_buffer, List* server_message_bus) {
-    cJSON* json = ParseJson(client_buffer);
+    struct json_object* json = ParseJson(client_buffer);
     if (json == NULL) {
-        const char* error_ptr = cJSON_GetErrorPtr();
-        if (error_ptr != NULL) {
-            char error[ERROR_MSG];
-            sprintf(error, "Error: %s\n", error_ptr);
-            AddContextMessage(server_message_bus, error, ERROR);
-        }
-        cJSON_Delete(json);
+        AddContextMessage(server_message_bus, "Error parsing json object\n", ERROR);
     } else {
-        // Access Json Data here
-        // https://www.geeksforgeeks.org/cjson-json-file-write-read-modify-in-c/
-        // https://www.tutorialspoint.com/sqlite/sqlite_c_cpp.htm
-        // https://stackoverflow.com/questions/16900874/using-cjson-to-read-in-a-json-array
+        AddContextMessage(server_message_bus, "Success Parsing Json\n", LOG);
+        // https://www.youtube.com/watch?v=dQyXuFWylm4&t=260s&ab_channel=HathibelagalProductions
+        struct json_object* json_name;
+        // TODO put database column names in a separate file with macro definitions
+        // Parse out each item, build the query and execute it
+        // Respond to client if the record was added or not
+        json_object_object_get_ex(json, "name", &json_name);
+        fprintf(stdout, "Name of pokemon: %s\n", json_object_get_string(json_name));
+        fflush(stdout);
     }
 }
 
-cJSON* ParseJson(char* buffer) {
+json_object* ParseJson(char* buffer) {
     const char* current_line = buffer;
     bool read_message_body = false;
     char* json_string = (char*)malloc(JSON_LEN);
@@ -135,18 +142,31 @@ cJSON* ParseJson(char* buffer) {
             memcpy(temp_current_line, current_line, current_line_len);
             temp_current_line[current_line_len] = '\0';
             if (!read_message_body) {
-                read_message_body = strcmp(temp_current_line, '\n');
-            } else if (!(strcmp(temp_current_line, '\n'))) {
-                // If we know we are reading the message body, we want read each line that is not a new line
-                json_string = strcat(json_string, temp_current_line);
+                // 0x7ffffc482 "\n\r\n{\r\n    name: \"bulbasaur\"\r\n}"
+                if (temp_current_line[0] == '{') {
+                    read_message_body = true;
+                }
             }
+            if (read_message_body) {
+                json_string = strcat(json_string, temp_current_line);
+            } 
         free(temp_current_line);
         } else {
             print_stderr("Error allocating memory parsing json string from client buffer\n");
+            return NULL;
         }
+        current_line = next_line ? (next_line+1) : NULL;
     }
 
-    cJSON* json = cJSON_Parse(json_string);
+    // Testing, TODO, see why parsing json string sent from request is incorrect
+    struct json_object* json;
+    FILE* fp;
+    char tbuffer[1024];
+    fp = fopen("test.json", "r");
+    fread(tbuffer, 1024, 1, fp);
+    fclose(fp);
+
+    json = json_tokener_parse(json_string);
     return json;
 }
 

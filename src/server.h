@@ -4,7 +4,6 @@
 #include "helpers/linkedlist.h"
 #include <sys/select.h>
 #include <time.h>
-#include "vendor/cJSON.h"
 #include "helpers/database_operations.h"
 
 // server constants
@@ -110,7 +109,7 @@ Server_Context* InitContext() {
     context->message_bus = InitList();
     context->status_line = malloc(sizeof(char) * STATUS_LINE);
     context->content_type = TEXT_PLAIN;
-    context->use_bearer_token = false;
+    context->use_bearer_token = true;
     return context;
 }
 
