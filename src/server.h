@@ -71,18 +71,19 @@ typedef struct Server_Context {
     CONTENT_TYPE content_type;
     char* status_line;
     bool use_bearer_token;
+    bool should_read_file;
 } Server_Context;
 
 // declarations
 // ------------
-char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response);
+char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response, bool* should_read_file);
 void Setfds(fd_set* readfds, int clientfds[], int* maxfd);
 void HandleClientRequest(int socket, char* client_buffer, Server_Context* context);
 bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
 bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
 bool HandleDeleteRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
 bool HandlePutRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
-ssize_t RespondClient(int socket, FILE* fptr, Server_Context* context);
+bool RespondClient(int socket, FILE* fptr, char* resource, Server_Context* context);
 void BuildResponse(char server_buf[], char message_body[], RESPONSE_CODE response_code, Server_Context* context);
 REQUEST_TYPE GetRequestType(char* request_moniker);
 bool HandleIncorrectRequest(int socket, char error_msg[], Server_Context* context);
@@ -110,6 +111,7 @@ Server_Context* InitContext() {
     context->status_line = malloc(sizeof(char) * STATUS_LINE);
     context->content_type = TEXT_PLAIN;
     context->use_bearer_token = true;
+    context->should_read_file = false;
     return context;
 }
 
@@ -179,10 +181,13 @@ void HandleClientRequest(int socket, char* client_buffer, Server_Context* contex
             break;
         case POST:
             result = HandlePostRequest(socket, resource, client_buffer, context);
+            break;
         case DELETE:
             result = HandleDeleteRequest(socket, resource, client_buffer, context);
+            break;
         case PUT:
             result = HandlePutRequest(socket, resource, client_buffer, context);
+            break;
         case DEFAULT:
             // respond with 400
             HandleIncorrectRequest(socket, "", context);
@@ -204,10 +209,13 @@ bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Co
     if (result == 0) {
         resource = strcat(resource, "index.html"); // return index.html by default
     }
+    // Get request could be for file or for API (data from database)
+    // TODO introduce a method to address the above
     if (resource[0] == '/') {
         memmove(resource, resource+1, strlen(resource));
         FILE* fptr;
         if (access(resource, F_OK) == 0) {
+            context->should_read_file = true;
             // check if user has permission
             if (CheckAccess(context, resource, client_buffer, R_OK)) {
                 fptr = fopen(resource, "r");
@@ -218,34 +226,24 @@ bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Co
         } else {
             fptr = NULL;
         }
-        ssize_t bytes_sent = RespondClient(socket, fptr, context);
-        if (bytes_sent < 0) {
-            char server_log[SERVER_MSG];
-            sprintf(server_log, "Error sending response to client\nRequest resource:{%s}\t Socket Used: {%d}\n", resource, socket);
-            AddContextMessage(context->message_bus, server_log, ERROR);
-            return false;
-        }
-        return true;
+        return RespondClient(socket, fptr, resource, context);
     } 
     // else respond with expected format for request, perhaps use some default file to request this from client
     return HandleIncorrectRequest(socket, "GET requested has incorrect formatting, please fix!\n", context);
 }
 
 bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
-    // Introduce tomorrow
-    // Parse json file from request to enter into sqlite database
-    // find what table they are writing the data to
     if (!ParseTableName(resource)) {
-        // something incorrect with the table name here, return false
         context->response = BAD_REQUEST;
         return false;
     }
-    AddOrUpdateRow(resource, client_buffer, context->message_bus);
+    AddRow(resource, client_buffer, context->message_bus);
     if (context->message_bus->tail->type == ERROR) {
-        // This means database update failed
+        // Database update failed
         return false;
     }
-    return true;
+    context->should_read_file = false;
+    return RespondClient(socket, NULL, resource, context);
 }
 
 bool ParseTableName(char* resource) {
@@ -354,26 +352,35 @@ REQUEST_TYPE GetRequestType(char* request_moniker) {
     return DEFAULT;
 }
 
-ssize_t RespondClient(int socket, FILE* fptr, Server_Context* context) {
+bool RespondClient(int socket, FILE* fptr, char* resource, Server_Context* context) {
     char server_buffer[RESPONSE_MSG];
-    char* msg_body = OpenReadFile(fptr, &context->response);
+    char* msg_body = OpenReadFile(fptr, &context->response, &context->should_read_file);
     BuildResponse(server_buffer, msg_body, context->response, context);
     ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
     free(msg_body);
-    return bytes_sent;
+    if (bytes_sent < 0) {
+        char server_log[SERVER_MSG];
+        server_log[0] = '\0';
+        sprintf(server_log, "Error sending response to client\nRequest resource:{%s}\t Socket Used: {%d}\n", resource, socket);
+        AddContextMessage(context->message_bus, server_log, ERROR);
+        return false;
+    }
+    return true;
 }
 
 // Open and read file to send back to client
-char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response) {
+char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response, bool* should_read_file) {
     char* body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
-    if (fptr == NULL) {
-        if (*response == SUCCESS) {
-            *response = NOT_FOUND;
-        }
-    } else {
-        char line[MAX_LINE_SIZE];
-        while(fgets(line, MAX_LINE_SIZE, fptr)) {
-            strcat(body, line);
+    if (*should_read_file) {
+        if (fptr == NULL) {
+            if (*response == SUCCESS) {
+                *response = NOT_FOUND;
+            }
+        } else {
+            char line[MAX_LINE_SIZE];
+            while(fgets(line, MAX_LINE_SIZE, fptr)) {
+                strcat(body, line);
+            }
         }
     }
     return body;
