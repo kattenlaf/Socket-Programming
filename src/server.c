@@ -1,4 +1,5 @@
-#include "server.h" // https://man7.org/linux/man-pages/man2/listen.2.html
+#include "src/server.h" // https://man7.org/linux/man-pages/man2/listen.2.html
+#include "src/helpers/database_operations.h"
 
 int main(void) {
     int master_socket, new_connected_fd; // File descriptor and new socket created on acceptance
@@ -11,6 +12,7 @@ int main(void) {
     size_t dataread;
     char prompt_messages[MAX_BUFFER_SIZE] = {0};
     Server_Context* context;
+    InitDatabase();
 
     /* Set up socket and bind to port */
     if ((master_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -47,7 +49,6 @@ int main(void) {
     int maxfd;
     int sd = 0;
     int fds_to_read;
-    ssize_t bytes_sent;
 
     while (true) {
         FD_ZERO(&readfds);
@@ -114,7 +115,7 @@ int main(void) {
                     print_stdout(buffer);
                     context = InitContext();
                     HandleClientRequest(sd, buffer, context);
-                    free(context);
+                    CleanContext(context);
                     close(sd);
                     clientfds[i] = 0;
                 }

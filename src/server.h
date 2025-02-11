@@ -1,10 +1,10 @@
 #ifndef __SERVER_H
 #define __SERVER_H
 #include "shared.h"
-#include "linkedlist.h"
+#include "helpers/linkedlist.h"
 #include <sys/select.h>
 #include <time.h>
-#include "vendor/cJSON.h"
+#include "helpers/database_operations.h"
 
 // server constants
 // ----------------
@@ -24,7 +24,6 @@
 typedef enum RESPONSE_CODE {
     SUCCESS = 200,
     CREATED,
-    ACCEPTED,
     NO_CONTENT = 204,
     BAD_REQUEST = 400,
     UNAUTHORIZED,
@@ -64,24 +63,27 @@ const char* CONTENT_TYPE_LIST[] = {
     "text/plain"
 };
 
-// Summary
-// primary context for hold server state at a given time
+
 typedef struct Server_Context {
     List* message_bus;
     RESPONSE_CODE response;
     REQUEST_TYPE request_type;
     CONTENT_TYPE content_type;
     char* status_line;
+    bool use_bearer_token;
+    bool should_read_file;
 } Server_Context;
 
 // declarations
 // ------------
-char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response);
+char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response, bool* should_read_file);
 void Setfds(fd_set* readfds, int clientfds[], int* maxfd);
 void HandleClientRequest(int socket, char* client_buffer, Server_Context* context);
 bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
 bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
-ssize_t RespondClient(int socket, FILE* fptr, Server_Context* context);
+bool HandleDeleteRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
+bool HandlePutRequest(int socket, char* resource, char* client_buffer, Server_Context* context);
+bool RespondClient(int socket, FILE* fptr, char* resource, Server_Context* context);
 void BuildResponse(char server_buf[], char message_body[], RESPONSE_CODE response_code, Server_Context* context);
 REQUEST_TYPE GetRequestType(char* request_moniker);
 bool HandleIncorrectRequest(int socket, char error_msg[], Server_Context* context);
@@ -89,9 +91,18 @@ bool CheckAccess(Server_Context* context, char* resource, char* client_buffer, i
 Token ParseToken(char* authorization);
 bool IsClientToken(Token token);
 Server_Context* InitContext();
+void CleanContext(Server_Context* context);
+bool ParseTableName(char* resource);
 
 // definitions
 // -----------
+
+/*
+*   Summary:
+*
+*       Provide fresh context for the current request
+*
+*/
 Server_Context* InitContext() {
     Server_Context* context = malloc(sizeof(Server_Context));
     context->request_type = DEFAULT;
@@ -99,7 +110,21 @@ Server_Context* InitContext() {
     context->message_bus = InitList();
     context->status_line = malloc(sizeof(char) * STATUS_LINE);
     context->content_type = TEXT_PLAIN;
+    context->use_bearer_token = true;
+    context->should_read_file = false;
     return context;
+}
+
+/*
+*   Summary:
+*
+*       Deallocate all the requested memory before providing a new context for the request
+*
+*/
+void CleanContext(Server_Context* context) {
+    free(context->status_line);
+    CleanupList(context->message_bus);
+    free(context);
 }
 
 
@@ -126,7 +151,6 @@ void HandleClientRequest(int socket, char* client_buffer, Server_Context* contex
     int j = 0;
     char request_char[10];
     char resource[MAX_FILENAME_SIZE];
-    int position = 0;
     while (client_buffer[i] != '\n') {
         if (context->request_type == DEFAULT) {
             if (client_buffer[i] == ' ') {
@@ -157,6 +181,13 @@ void HandleClientRequest(int socket, char* client_buffer, Server_Context* contex
             break;
         case POST:
             result = HandlePostRequest(socket, resource, client_buffer, context);
+            break;
+        case DELETE:
+            result = HandleDeleteRequest(socket, resource, client_buffer, context);
+            break;
+        case PUT:
+            result = HandlePutRequest(socket, resource, client_buffer, context);
+            break;
         case DEFAULT:
             // respond with 400
             HandleIncorrectRequest(socket, "", context);
@@ -178,10 +209,13 @@ bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Co
     if (result == 0) {
         resource = strcat(resource, "index.html"); // return index.html by default
     }
+    // Get request could be for file or for API (data from database)
+    // TODO introduce a method to address the above
     if (resource[0] == '/') {
         memmove(resource, resource+1, strlen(resource));
         FILE* fptr;
         if (access(resource, F_OK) == 0) {
+            context->should_read_file = true;
             // check if user has permission
             if (CheckAccess(context, resource, client_buffer, R_OK)) {
                 fptr = fopen(resource, "r");
@@ -192,23 +226,44 @@ bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Co
         } else {
             fptr = NULL;
         }
-        ssize_t bytes_sent = RespondClient(socket, fptr, context);
-        if (bytes_sent < 0) {
-            char server_log[SERVER_MSG];
-            sprintf(server_log, "Error sending response to client\nRequest resource:{%s}\t Socket Used: {%d}\n", resource, socket);
-            AddContextMessage(context->message_bus, server_log, ERROR);
-            return false;
-        }
-        return true;
+        return RespondClient(socket, fptr, resource, context);
     } 
     // else respond with expected format for request, perhaps use some default file to request this from client
-    HandleIncorrectRequest(socket, "GET requested has incorrect formatting, please fix!\n", context);
+    return HandleIncorrectRequest(socket, "GET requested has incorrect formatting, please fix!\n", context);
 }
 
 bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
-    // Introduce tomorrow
-    // Parse json file from request
-    // Handle whats needed and what resource to write to 
+    if (!ParseTableName(resource)) {
+        context->response = BAD_REQUEST;
+        return false;
+    }
+    AddRow(resource, client_buffer, context->message_bus);
+    if (context->message_bus->tail->type == ERROR) {
+        // Database update failed
+        return false;
+    }
+    context->should_read_file = false;
+    return RespondClient(socket, NULL, resource, context);
+}
+
+bool ParseTableName(char* resource) {
+    const char *dot = strrchr(resource, '.');
+    if (!dot || dot == resource) {
+        if (resource[0] == '/') {
+            memmove(resource, resource+1, strlen(resource));
+        }
+        return true;
+    }
+    return false;
+}
+
+bool HandleDeleteRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
+    // Implement later
+    return true;
+}
+
+bool HandlePutRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
+    // Implement later
     return true;
 }
 
@@ -239,12 +294,17 @@ void BuildResponse(char server_buf[], char message_body[], RESPONSE_CODE respons
     struct tm* tm = localtime(&t);
     char current_time[64];
     size_t ret = strftime(current_time, sizeof(current_time), "%c", tm);
+    fprintf(stdout, "bytes for time: %ld", ret);
+    fflush(stdout);
     sprintf(context->status_line, "%s ", HTTP_VERSION);
     CONTENT_TYPE content_type;
     switch (response_code) {
         case (SUCCESS):
             strcat(context->status_line, "200 OK");
             content_type = TEXT_HTML;
+            break;
+        case (CREATED):
+            strcat(context->status_line, "201 Created");
             break;
         case (NOT_FOUND):
             strcat(context->status_line, "404 Not Found");
@@ -261,8 +321,15 @@ void BuildResponse(char server_buf[], char message_body[], RESPONSE_CODE respons
             AddContextMessage(context->message_bus, "User does not have access to resource\n", ERROR);
             content_type = TEXT_PLAIN;
             break;
+        case (NO_CONTENT):
+            strcat(context->status_line, "204 No Content");
+            break;
+        case (FORBIDDEN):
+            strcat(context->status_line, "403 Forbidden");
+            break;
     }
     DumpContextMessages(context->message_bus, message_body, ALL);
+    // Enhance this, based on response code response will contain some additional details or lacking some.
     sprintf(server_buf, 
         "%s\n"
         "Date: %s\n"
@@ -270,7 +337,7 @@ void BuildResponse(char server_buf[], char message_body[], RESPONSE_CODE respons
         "Content-Type: %s\n"
         "Connection: close\n"
         "\n"
-        "%s\0", context->status_line, current_time, SERVER_NAME, CONTENT_TYPE_LIST[content_type],message_body);
+        "%s", context->status_line, current_time, SERVER_NAME, CONTENT_TYPE_LIST[content_type],message_body);
 }
 
 REQUEST_TYPE GetRequestType(char* request_moniker) {
@@ -285,27 +352,35 @@ REQUEST_TYPE GetRequestType(char* request_moniker) {
     return DEFAULT;
 }
 
-ssize_t RespondClient(int socket, FILE* fptr, Server_Context* context) {
+bool RespondClient(int socket, FILE* fptr, char* resource, Server_Context* context) {
     char server_buffer[RESPONSE_MSG];
-    char line[MAX_LINE_SIZE];
-    char* msg_body = OpenReadFile(fptr, &context->response);
+    char* msg_body = OpenReadFile(fptr, &context->response, &context->should_read_file);
     BuildResponse(server_buffer, msg_body, context->response, context);
     ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
     free(msg_body);
-    return bytes_sent;
+    if (bytes_sent < 0) {
+        char server_log[SERVER_MSG];
+        server_log[0] = '\0';
+        sprintf(server_log, "Error sending response to client\nRequest resource:{%s}\t Socket Used: {%d}\n", resource, socket);
+        AddContextMessage(context->message_bus, server_log, ERROR);
+        return false;
+    }
+    return true;
 }
 
 // Open and read file to send back to client
-char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response) {
+char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response, bool* should_read_file) {
     char* body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
-    if (fptr == NULL) {
-        if (*response == SUCCESS) {
-            *response = NOT_FOUND;
-        }
-    } else {
-        char line[MAX_LINE_SIZE];
-        while(fgets(line, MAX_LINE_SIZE, fptr)) {
-            strcat(body, line);
+    if (*should_read_file) {
+        if (fptr == NULL) {
+            if (*response == SUCCESS) {
+                *response = NOT_FOUND;
+            }
+        } else {
+            char line[MAX_LINE_SIZE];
+            while(fgets(line, MAX_LINE_SIZE, fptr)) {
+                strcat(body, line);
+            }
         }
     }
     return body;
@@ -318,6 +393,9 @@ bool CheckAccess(Server_Context* context, char* resource, char* client_buffer, i
     token.valid = false;
     bool authHeaderExists = false;
     if (check_mode == R_OK && access(resource, check_mode) == 0) {
+        if (!context->use_bearer_token) {
+            return true;
+        }
         // parse client_buffer for details, authenticate user and then allow read
         while(current_line) {
             const char* next_line = strchr(current_line, '\n');
@@ -352,7 +430,6 @@ Token ParseToken(char* authorization) {
     Token token;
     token.valid = false;
     int token_pos = 0;
-    int length = strlen(authorization);
     for (int i = 0; i < strlen(authorization); i++) {
         if (spaces == 0) {
             token_string[token_pos] = authorization[i];
