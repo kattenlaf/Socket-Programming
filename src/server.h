@@ -194,13 +194,15 @@ void HandleClientRequest(int socket, char* client_buffer, Server_Context* contex
             break;
     }
 
-    char server_log[SERVER_MSG];
+    char server_response[SERVER_MSG];
+    server_response[0] = '\0';
+    
     if (result) {
-        DumpContextMessages(context->message_bus, server_log, LOG);
-        print_stdout(server_log);
+        DumpContextMessages(context->message_bus, server_response, LOG);
+        print_stdout(server_response);
     } else {
-        DumpContextMessages(context->message_bus, server_log, ERROR);
-        print_stderr(server_log);
+        DumpContextMessages(context->message_bus, server_response, ERROR);
+        print_stderr(server_response);
     }
 }
 
@@ -225,6 +227,9 @@ bool HandleGetRequest(int socket, char* resource, char* client_buffer, Server_Co
             }
         } else {
             fptr = NULL;
+        }
+        if (!context->should_read_file) {
+            GetRow(resource, context->message_bus);
         }
         return RespondClient(socket, fptr, resource, context);
     } 
@@ -271,6 +276,7 @@ bool HandleIncorrectRequest(int socket, char error_msg[], Server_Context* contex
     RESPONSE_CODE response = BAD_REQUEST;
     char server_buffer[RESPONSE_MSG];
     char* msg_body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
+    msg_body[0] = '\0';
     sprintf(msg_body, error_msg);
     BuildResponse(server_buffer, msg_body, response, context);
     ssize_t bytes_sent = send(socket, server_buffer, strlen(server_buffer), 0);
@@ -371,6 +377,7 @@ bool RespondClient(int socket, FILE* fptr, char* resource, Server_Context* conte
 // Open and read file to send back to client
 char* OpenReadFile(FILE* fptr, RESPONSE_CODE* response, bool* should_read_file) {
     char* body = malloc(sizeof(char) * HTML_FILE_RESPONSE);
+    body[0] = '\0';
     if (*should_read_file) {
         if (fptr == NULL) {
             if (*response == SUCCESS) {

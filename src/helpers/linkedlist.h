@@ -7,7 +7,8 @@ typedef enum MESSAGE_TYPE {
     ALL,
     LOG,
     ERROR,
-    DEBUG
+    DEBUG,
+    RESPONSE
 } MESSAGE_TYPE;
 
 typedef struct Node {
