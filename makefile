@@ -5,7 +5,7 @@ OBJ=sqlite3.o
 # https://man7.org/linux/man-pages/man1/gcc.1.html
 
 all: sqlite3.o client
-	$(CC) $(CFLAGS) src/server.c sqlite3.o -o src/server
+	$(CC) $(CFLAGS) src/server.c sqlite3.o -ljson-c -o src/server
 
 sqlite3.o:
 	$(CC) $(CFLAGS) -c src/vendor/sqlite3.c -o $@

@@ -2,7 +2,9 @@
 #define DATABASE_CONSTS
 #include <json-c/json.h>
 
-# define TABLE_LEN 2
+#define TABLE_LEN 2
+#define POKEMON_COLUMNS 4
+#define SUCCESSFUL_QUERY "\n\nQuery Successful\n"
 
 // Tables
 typedef enum TABLES {
@@ -29,13 +31,14 @@ typedef enum POKEMON_TYPE {
 
 // Sync with TABLES to get the table name to update
 char* tables[] = {"gymleaders", "pokemon"};
-const char* pokemon_types[] = {"null", "Grass", "Water", "Fire", "Flying", "Poison"};
+const char* pokemon_types[] = {"null", "grass", "water", "fire", "flying", "poison"};
 const char* pc[] = {"pokedex_num", "name", "type1", "type2"}; // pokemon columns
+const char* pcUpper[] = {"POKEDEX_NUM", "NAME", "TYPE1", "TYPE2"}; // pokemon columns uppercase
 
 // definitions for pokemon table
 typedef struct Pokemon {
     int pokedex_num;
-    char* name;
+    const char* name;
     POKEMON_TYPE type1;
     POKEMON_TYPE type2;
 } Pokemon;
@@ -51,21 +54,26 @@ Pokemon GetPokemonFromJson(struct json_object* json);
 
 
 Pokemon GetPokemonFromJson(struct json_object* json) {
-    // TODO convert to loop
-    struct json_object* json_pokedex_num;
-    struct json_object* json_name;
-    struct json_object* json_type1;
-    struct json_object* json_type2;
-    json_object_object_get_ex(json, pc[(int)POKEDEX_NUM], &json_pokedex_num);
-    json_object_object_get_ex(json, pc[(int)NAME], &json_name);
-    json_object_object_get_ex(json, pc[(int)TYPE1], &json_type1);
-    json_object_object_get_ex(json, pc[(int)TYPE2], &json_type2);
     Pokemon pokemon;
-    pokemon.pokedex_num = json_object_get_int(json_pokedex_num);
-    pokemon.name = json_object_get_string(json_name);
-    pokemon.type1 = (POKEMON_TYPE) json_object_get_int(json_type1);
-    pokemon.type2 = (POKEMON_TYPE) json_object_get_int(json_type2);
-
+    for (int i = 0; i < POKEMON_COLUMNS; i++) {
+        struct json_object* jobject;
+        json_object_object_get_ex(json, pc[i], &jobject);
+        switch(i) {
+            case (int)POKEDEX_NUM:
+                pokemon.pokedex_num = json_object_get_int(jobject);
+                break;
+            case (int)NAME:
+                pokemon.name = json_object_get_string(jobject);
+                break;
+            case (int)TYPE1:
+                // In future, handle strings being sent here2
+                pokemon.type1 = (POKEMON_TYPE) json_object_get_int(jobject);
+                break;
+            case (int)TYPE2:
+                pokemon.type2 = (POKEMON_TYPE) json_object_get_int(jobject);
+                break;
+        }
+    }
     return pokemon;
 }
 
