@@ -51,7 +51,7 @@ static int callback(void* ptr_server_msg_bus, int col_count, char **data, char *
         fprintf(stdout, "The data in column \"%s\" is: %s\n", columns[idx], data[idx]);
         fflush(stdout);
         char key[JSON_KEY_LEN];
-        sprintf(key, "\"%s\"", pc[idx]);
+        sprintf(key, "%s", pc[idx]);
         switch (idx) {
             int pokedex_num, type1, type2;
             case (int) POKEDEX_NUM:
@@ -133,7 +133,7 @@ void ExecuteQuery(char* query, List* server_message_bus) {
             // Abort due to constraint violation error
             LogDatabaseError(rc, db, server_message_bus);
         } else {
-            AddContextMessage(server_message_bus, "\nquery successful.\n", LOG);
+            AddContextMessage(server_message_bus, SUCCESSFUL_QUERY, LOG);
         }
     } else {
         LogDatabaseError(rc, db, server_message_bus);
@@ -145,7 +145,7 @@ void ValidateQueryExecution(int rc, sqlite3* db, List* server_message_bus) {
     if (rc != SQLITE_OK) {
         LogDatabaseError(rc, db, server_message_bus);
     } else {
-        AddContextMessage(server_message_bus, "\nquery successful.\n", LOG);
+        AddContextMessage(server_message_bus, SUCCESSFUL_QUERY, LOG);
     }
 }
 
@@ -183,6 +183,9 @@ void AddRow(char* table_name, char* client_buffer, List* server_message_bus) {
             // Build and execute query using json
             char* sql = BuildQuery(table, json, DATABASE_INSERT, NULL);
             ExecuteQuery(sql, server_message_bus);
+        } else {
+            snprintf(server_log, 46, "Table incorrectly provided or does not exist\n");
+            AddContextMessage(server_message_bus, server_log, TABLE_NONEXISTENT);
         }
     }
 }
@@ -328,14 +331,7 @@ json_object* ParseJson(char* buffer) {
         current_line = next_line ? (next_line+1) : NULL;
     }
 
-    // Testing, TODO, see why parsing json string sent from request is incorrect
     struct json_object* json;
-    FILE* fp;
-    char tbuffer[1024];
-    fp = fopen("test.json", "r");
-    fread(tbuffer, 1024, 1, fp);
-    fclose(fp);
-
     json = json_tokener_parse(json_string);
     free(json_string);
     return json;

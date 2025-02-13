@@ -4,6 +4,7 @@
 
 #define TABLE_LEN 2
 #define POKEMON_COLUMNS 4
+#define SUCCESSFUL_QUERY "\n\nQuery Successful\n"
 
 // Tables
 typedef enum TABLES {

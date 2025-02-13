@@ -7,6 +7,7 @@ typedef enum MESSAGE_TYPE {
     ALL,
     LOG,
     ERROR,
+    TABLE_NONEXISTENT,
     DEBUG,
     RESPONSE
 } MESSAGE_TYPE;

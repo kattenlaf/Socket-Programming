@@ -243,10 +243,17 @@ bool HandlePostRequest(int socket, char* resource, char* client_buffer, Server_C
         return false;
     }
     AddRow(resource, client_buffer, context->message_bus);
-    if (context->message_bus->tail->type == ERROR) {
-        // Database update failed
-        return false;
+    MESSAGE_TYPE tail_message = context->message_bus->tail->type;
+    switch (tail_message) {
+        case ERROR:
+            return false;
+            break;
+        case TABLE_NONEXISTENT:
+            context->response = NOT_FOUND;
+            return false;
+            break;
     }
+    
     context->should_read_file = false;
     return RespondClient(socket, NULL, resource, context);
 }
@@ -263,13 +270,29 @@ bool ParseTableName(char* resource) {
 }
 
 bool HandleDeleteRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
-    // Implement later
+    // TODO: Implement deleting record
     return true;
 }
 
 bool HandlePutRequest(int socket, char* resource, char* client_buffer, Server_Context* context) {
-    // Implement later
-    return true;
+    if (!ParseTableName(resource)) {
+        context->response = BAD_REQUEST;
+        return false;
+    }
+    AddRow(resource, client_buffer, context->message_bus);
+    MESSAGE_TYPE tail_message = context->message_bus->tail->type;
+    switch (tail_message) {
+        case ERROR:
+            return false;
+            break;
+        case TABLE_NONEXISTENT:
+            context->response = NOT_FOUND;
+            return false;
+            break;
+    }
+    
+    context->should_read_file = false;
+    return RespondClient(socket, NULL, resource, context);
 }
 
 bool HandleIncorrectRequest(int socket, char error_msg[], Server_Context* context) {
